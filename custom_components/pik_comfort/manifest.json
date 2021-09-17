@@ -1,0 +1,14 @@
+{
+    "domain": "pik_comfort",
+    "name": "ПИК Комфорт / PIK Comfort",
+    "documentation": "https://github.com/alryaz/hass-pik-comfort",
+    "issue_tracker": "https://github.com/alryaz/hass-pik-comfort/issues",
+    "dependencies": [],
+    "version": "0.0.1",
+    "codeowners": [
+        "@alryaz"
+    ],
+    "requirements": [],
+    "config_flow": true,
+    "iot_class": "cloud_polling"
+}

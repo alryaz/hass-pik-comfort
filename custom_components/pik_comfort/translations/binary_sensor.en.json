@@ -1,0 +1,12 @@
+{
+    "state": {
+        "pik_comfort_meter": {
+            "off": "Readings submitted",
+            "on": "Readings not submitted"
+        },
+        "_": {
+            "off": "[%key:common::state::off%]",
+            "on": "[%key:common::state::on%]"
+        }
+    }
+}

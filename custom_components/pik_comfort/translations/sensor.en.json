@@ -1,0 +1,20 @@
+{
+    "state": {
+        "pik_comfort_last_payment": {
+            "accepted": "Accepted",
+            "declined": "Declined",
+            "processing": "Processing",
+            "unknown": "[%key:common::state::unknown%]"
+        },
+        "pik_comfort_ticket": {
+            "received": "Received",
+            "processing": "Processing",
+            "completed": "Completed",
+            "denied": "Denied",
+            "unknown": "[%key:common::state::unknown%]"
+        },
+        "monetary": {
+            "0.0": "Оплачен"
+        }
+    }
+}

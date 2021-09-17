@@ -1,0 +1,38 @@
+push_readings:
+  description: 'Передать показания в личный кабинет'
+  target:
+    entity:
+      device_class: pik_comfort_meter
+  fields:
+    readings:
+      description: 'Список показаний (от 1 до 3) для тарифов: T1, T2, T3'
+      required: true
+      advanced: false
+      example: '123, 456, 789'
+      selector:
+        text:
+          multiline: false
+    incremental:
+      description: 'Сложить известные переданные показания счётчика с передаваемыми'
+      required: false
+      advanced: false
+      default: false
+      example: 'false'
+      selector:
+        boolean:
+    notification:
+      description: 'Показывать уведомление при успешной передаче'
+      required: false
+      advanced: false
+      default: false
+      example: 'true'
+      selector:
+        boolean:
+    ignore_readings:
+      description: 'Игнорировать ограничения по показаниям'
+      required: false
+      advanced: true
+      default: false
+      example: 'false'
+      selector:
+        boolean:
