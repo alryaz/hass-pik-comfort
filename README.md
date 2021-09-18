@@ -54,7 +54,7 @@ _&#xab;ПИК Комфорт&#xbb;_ для _Home Assistant_
 | `target` | Выборка целевых объектов, для которых требуется передавать показания |
 | `data`.`readings` | Список / именованный массив показаний, передаваемых в ЛК |
 | `data`.`incremental` | Суммирование текущих показаний с передаваемыми |
-| `data`.`ignore_indications` | Игнорировать ограничения по значениям |
+| `data`.`ignore_readings` | Игнорировать ограничения по значениям |
 
 Результатом вызова службы будет событие с идентификатором `pik_comfort_push_readings`
 и следующими значениями:
@@ -81,7 +81,7 @@ _&#xab;ПИК Комфорт&#xbb;_ для _Home Assistant_
 ```yaml
 service: pik_comfort.push_readings
 data:
-  indications: "123, 456, 789"
+  readings: "123, 456, 789"
 target:
   entity_id: binary_sensor.1243145122_meter_123456789
 ```
@@ -91,7 +91,7 @@ target:
 ```yaml
 service: pik_comfort.push_readings
 data:
-  indications:
+  readings:
     t1: 123
     t2: 456
     t3: 789
@@ -104,7 +104,7 @@ target:
 ```yaml
 service: pik_comfort.push_readings
 data:
-  indications: [123, 456, 789]
+  readings: [123, 456, 789]
 target:
   entity_id: binary_sensor.1243145122_meter_123456789
 ```
@@ -120,8 +120,8 @@ target:
 ```yaml
 service: pik_comfort.push_readings
 data_template:
-  indications: [123, 456, 789]
-  ignore_indications: true
+  readings: [123, 456, 789]
+  ignore_readings: true
 target:
   entity_id: binary_sensor.1243145122_meter_123456789
 ```
@@ -138,7 +138,7 @@ target:
 ```yaml
 service: pik_comfort.push_readings
 data_template:
-  indications: [123, 456, 789]
+  readings: [123, 456, 789]
   incremental: true
 target:
   entity_id: binary_sensor.1243145122_meter_123456789
