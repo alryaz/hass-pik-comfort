@@ -17,7 +17,6 @@ from custom_components.pik_comfort._base import (
 from custom_components.pik_comfort.api import (
     MeterResourceType,
     PikComfortAPI,
-    PikComfortAccount,
     PikComfortException,
     PikComfortMeter,
 )
@@ -80,19 +79,23 @@ async def async_process_update(
 
     # Process accounts
     for account in api_object.user_data.accounts:
+        account_key = (account.type, account.uid)
+
         # Process meters per account
         for meter in account.meters:
-            key = (meter.type, meter.uid)
+            meter_key = (meter.type, meter.uid)
             existing_entity = None
 
             for entity in meter_entities:
-                if (entity.meter_type, entity.meter_uid) == key:
+                if (entity.meter_type, entity.meter_uid) == meter_key:
                     existing_entity = entity
                     old_meter_entities.remove(existing_entity)
                     break
 
             if existing_entity is None:
-                new_entities.append(PikComfortMeterSensor(config_entry_id, *key))
+                new_entities.append(
+                    PikComfortMeterSensor(config_entry_id, *account_key, *meter_key)
+                )
             else:
                 existing_entity.async_schedule_update_ha_state(force_refresh=False)
 
@@ -121,15 +124,22 @@ async def async_setup_entry(
 
 
 class PikComfortMeterSensor(BasePikComfortEntity, BinarySensorEntity):
-    def __init__(self, config_entry_id: str, meter_type: str, meter_uid: str) -> None:
-        BasePikComfortEntity.__init__(self, config_entry_id)
+    def __init__(
+        self,
+        config_entry_id: str,
+        account_type: str,
+        account_uid: str,
+        meter_type: str,
+        meter_uid: str,
+    ) -> None:
+        BasePikComfortEntity.__init__(self, config_entry_id, account_type, account_uid)
         BinarySensorEntity.__init__(self)
 
         self.meter_type: str = meter_type
         self.meter_uid: str = meter_uid
 
     @property
-    def _meter_object(self) -> Optional[PikComfortMeter]:
+    def meter_object(self) -> Optional[PikComfortMeter]:
         user_data = self.api_object.user_data
 
         if user_data is None:
@@ -144,23 +154,8 @@ class PikComfortMeterSensor(BasePikComfortEntity, BinarySensorEntity):
         return None
 
     @property
-    def _account_object(self) -> Optional[PikComfortAccount]:
-        user_data = self.api_object.user_data
-
-        if user_data is None:
-            return None
-
-        key = (self.meter_type, self.meter_uid)
-        for account in user_data.accounts:
-            for meter in account.meters:
-                if (meter.type, meter.uid) == key:
-                    return account
-
-        return None
-
-    @property
     def name(self) -> str:
-        meter_object = self._meter_object
+        meter_object = self.meter_object
 
         if meter_object is None:
             return f"Meter {self.meter_uid}"
@@ -178,7 +173,7 @@ class PikComfortMeterSensor(BasePikComfortEntity, BinarySensorEntity):
 
     @property
     def unique_id(self) -> str:
-        meter_object = self._meter_object
+        meter_object = self.meter_object
         return "meter__" + meter_object.type + "__" + meter_object.uid
 
     # @property
@@ -187,7 +182,7 @@ class PikComfortMeterSensor(BasePikComfortEntity, BinarySensorEntity):
 
     @property
     def is_on(self) -> bool:
-        meter_object = self._meter_object
+        meter_object = self.meter_object
         return not (meter_object.is_auto or meter_object.has_user_readings)
 
     @property
@@ -196,7 +191,7 @@ class PikComfortMeterSensor(BasePikComfortEntity, BinarySensorEntity):
 
     @property
     def device_state_attributes(self) -> Mapping[str, Any]:
-        meter_object = self._meter_object
+        meter_object = self.meter_object
         return {
             ATTR_DEVICE_CLASS: "pik_comfort_meter",
             "has_user_readings": meter_object.has_user_readings,
@@ -262,7 +257,7 @@ class PikComfortMeterSensor(BasePikComfortEntity, BinarySensorEntity):
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
 
-        meter_object = self._meter_object
+        meter_object = self.meter_object
 
         if not meter_object.is_auto:
             self.platform.async_register_entity_service(
@@ -278,7 +273,7 @@ class PikComfortMeterSensor(BasePikComfortEntity, BinarySensorEntity):
         event_id: str,
         title: str,
     ):
-        meter = self._meter_object
+        meter = self.meter_object
         hass = self.hass
 
         comment = event_data.get(ATTR_COMMENT)
@@ -334,7 +329,7 @@ class PikComfortMeterSensor(BasePikComfortEntity, BinarySensorEntity):
         log_prefix = f"[{self.entity_id}] "
         _LOGGER.debug(log_prefix + "Начало обработки передачи показаний")
 
-        meter_object = self._meter_object
+        meter_object = self.meter_object
         event_data = {ATTR_READINGS: None}
 
         try:

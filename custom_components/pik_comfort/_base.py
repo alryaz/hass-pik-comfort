@@ -2,7 +2,7 @@ import asyncio
 import logging
 from abc import ABC, abstractmethod
 from datetime import timedelta
-from typing import Awaitable, Callable, Dict, Optional
+from typing import Any, Awaitable, Callable, Dict, Optional
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_SCAN_INTERVAL
@@ -21,17 +21,60 @@ from custom_components.pik_comfort.const import (
     DATA_ENTITIES,
     SUPPORTED_PLATFORMS,
 )
-from custom_components.pik_comfort.api import PikComfortAPI, PikComfortException
+from custom_components.pik_comfort.api import (
+    PikComfortAPI,
+    PikComfortAccount,
+    PikComfortException,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
 
 class BasePikComfortEntity(Entity, ABC):
-    def __init__(self, config_entry_id: str) -> None:
+    def __init__(
+        self, config_entry_id: str, account_type: str, account_uid: str
+    ) -> None:
         self._config_entry_id = config_entry_id
         self._collective_update_future: Optional[asyncio.Future] = None
         self._collective_update_counter: int = 0
         self._available: bool = True
+
+        self.account_type: str = account_type
+        self.account_uid: str = account_uid
+
+    @property
+    def account_object(self) -> Optional[PikComfortAccount]:
+        user_data = self.api_object.user_data
+
+        if user_data is None:
+            return None
+
+        key = (self.account_uid, self.account_type)
+        for account in user_data.accounts:
+            if (account.uid, account.type) == key:
+                return account
+
+        return None
+
+    @property
+    def device_info(self) -> Dict[str, Any]:
+        device_info = {
+            "manufacturer": "PIK Comfort",
+            "identifiers": {(DOMAIN, self.account_uid)},
+            "model": "Account",
+        }
+
+        account_object = self.account_object
+
+        if account_object is not None:
+            device_info["suggested_area"] = account_object.address
+
+            if account_object.has_account_number:
+                account_number = account_object.number
+                if account_number is not None:
+                    device_info["name"] = "№ " + account_number
+
+        return device_info
 
     @property
     @abstractmethod

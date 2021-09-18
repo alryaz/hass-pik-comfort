@@ -15,7 +15,6 @@ from custom_components.pik_comfort._base import (
 from custom_components.pik_comfort.api import (
     PaymentStatus,
     PikComfortAPI,
-    PikComfortAccount,
     PikComfortTicket,
     TicketStatus,
 )
@@ -49,17 +48,19 @@ async def async_process_update(
     # Process accounts
     for account in api_object.user_data.accounts:
         # Process last payment per account
-        key = (account.type, account.uid)
+        account_key = (account.type, account.uid)
         existing_entity = None
 
         for entity in last_payment_entities:
-            if (entity.account_type, entity.account_uid) == key:
+            if (entity.account_type, entity.account_uid) == account_key:
                 existing_entity = entity
                 old_last_payment_entities.remove(entity)
                 break
 
         if existing_entity is None:
-            new_entities.append(PikComfortLastPaymentSensor(config_entry_id, *key))
+            new_entities.append(
+                PikComfortLastPaymentSensor(config_entry_id, *account_key)
+            )
         else:
             existing_entity.async_schedule_update_ha_state(force_refresh=False)
 
@@ -67,29 +68,33 @@ async def async_process_update(
         # key is the same
         existing_entity = None
         for entity in last_receipt_entities:
-            if (entity.account_type, entity.account_uid) == key:
+            if (entity.account_type, entity.account_uid) == account_key:
                 existing_entity = entity
                 old_last_receipt_entities.remove(entity)
                 break
 
         if existing_entity is None:
-            new_entities.append(PikComfortLastReceiptSensor(config_entry_id, *key))
+            new_entities.append(
+                PikComfortLastReceiptSensor(config_entry_id, *account_key)
+            )
         else:
             existing_entity.async_schedule_update_ha_state(force_refresh=False)
 
         # Process tickets per account
         for ticket in account.tickets:
-            key = (ticket.type, ticket.uid)
+            ticket_key = (ticket.type, ticket.uid)
             existing_entity = None
 
             for entity in ticket_entities:
-                if (entity.ticket_type, entity.ticket_uid) == key:
+                if (entity.ticket_type, entity.ticket_uid) == ticket_key:
                     existing_entity = entity
                     old_ticket_entities.remove(existing_entity)
                     break
 
             if existing_entity is None:
-                new_entities.append(PikComfortTicketSensor(config_entry_id, *key))
+                new_entities.append(
+                    PikComfortTicketSensor(config_entry_id, *account_key, *ticket_key)
+                )
             else:
                 existing_entity.async_schedule_update_ha_state(force_refresh=False)
 
@@ -124,34 +129,10 @@ async def async_setup_entry(
 _LOGGER = logging.getLogger(__name__)
 
 
-class _PikComfortAccountSensor(BasePikComfortEntity):
-    def __init__(
-        self, config_entry_id: str, account_type: str, account_uid: str
-    ) -> None:
-        super().__init__(config_entry_id)
-
-        self.account_type: str = account_type
-        self.account_uid: str = account_uid
-
-    @property
-    def _account_object(self) -> Optional[PikComfortAccount]:
-        user_data = self.api_object.user_data
-
-        if user_data is None:
-            return None
-
-        key = (self.account_uid, self.account_type)
-        for account in user_data.accounts:
-            if (account.uid, account.type) == key:
-                return account
-
-        return None
-
-
-class PikComfortLastPaymentSensor(_PikComfortAccountSensor):
+class PikComfortLastPaymentSensor(BasePikComfortEntity):
     @property
     def icon(self) -> str:
-        account_object = self._account_object
+        account_object = self.account_object
 
         if account_object is not None:
             last_payment = account_object.last_payment
@@ -166,7 +147,7 @@ class PikComfortLastPaymentSensor(_PikComfortAccountSensor):
 
     @property
     def name(self) -> str:
-        account_object = self._account_object
+        account_object = self.account_object
         if account_object is None:
             return f"Last Payment {self.account_uid}"
 
@@ -178,12 +159,12 @@ class PikComfortLastPaymentSensor(_PikComfortAccountSensor):
 
     @property
     def available(self) -> bool:
-        account_object = self._account_object
+        account_object = self.account_object
         return bool(account_object and account_object.last_payment)
 
     @property
     def state(self) -> str:
-        last_payment = self._account_object.last_payment
+        last_payment = self.account_object.last_payment
         if last_payment is None:
             return STATE_UNAVAILABLE
 
@@ -195,12 +176,12 @@ class PikComfortLastPaymentSensor(_PikComfortAccountSensor):
 
     @property
     def device_state_attributes(self) -> Optional[Mapping[str, Any]]:
-        last_payment = self._account_object.last_payment
+        last_payment = self.account_object.last_payment
 
         if last_payment is None:
             return None
 
-        account_object = self._account_object
+        account_object = self.account_object
 
         return {
             "amount": last_payment.amount,
@@ -220,8 +201,15 @@ class PikComfortLastPaymentSensor(_PikComfortAccountSensor):
 
 
 class PikComfortTicketSensor(BasePikComfortEntity):
-    def __init__(self, config_entry_id: str, ticket_type: str, ticket_uid: str) -> None:
-        super().__init__(config_entry_id)
+    def __init__(
+        self,
+        config_entry_id: str,
+        account_type: str,
+        account_uid: str,
+        ticket_type: str,
+        ticket_uid: str,
+    ) -> None:
+        super().__init__(config_entry_id, account_type, account_uid)
 
         self.ticket_type: str = ticket_type
         self.ticket_uid: str = ticket_uid
@@ -237,20 +225,6 @@ class PikComfortTicketSensor(BasePikComfortEntity):
             for ticket in account.tickets:
                 if (ticket.type, ticket.uid) == key:
                     return ticket
-
-        return None
-
-    @property
-    def _account_object(self) -> Optional[PikComfortAccount]:
-        user_data = self.api_object.user_data
-        if not user_data:
-            return None
-
-        key = (self.ticket_type, self.ticket_uid)
-        for account in user_data.accounts:
-            for ticket in account.tickets:
-                if (ticket.type, ticket.uid) == key:
-                    return account
 
         return None
 
@@ -311,7 +285,7 @@ class PikComfortTicketSensor(BasePikComfortEntity):
         if ticket_object is None:
             return None
 
-        account_object = self._account_object
+        account_object = self.account_object
 
         return {
             "number": ticket_object.number,
@@ -331,10 +305,10 @@ class PikComfortTicketSensor(BasePikComfortEntity):
         }
 
 
-class PikComfortLastReceiptSensor(_PikComfortAccountSensor):
+class PikComfortLastReceiptSensor(BasePikComfortEntity):
     @property
     def icon(self) -> str:
-        account_object = self._account_object
+        account_object = self.account_object
 
         if account_object is not None:
             last_receipt = account_object.last_receipt
@@ -351,7 +325,7 @@ class PikComfortLastReceiptSensor(_PikComfortAccountSensor):
 
     @property
     def name(self) -> str:
-        account_object = self._account_object
+        account_object = self.account_object
         if account_object is None:
             return f"Last Receipt {self.account_uid}"
 
@@ -366,12 +340,12 @@ class PikComfortLastReceiptSensor(_PikComfortAccountSensor):
 
     @property
     def available(self) -> bool:
-        account_object = self._account_object
+        account_object = self.account_object
         return bool(account_object and account_object.last_receipt)
 
     @property
     def state(self) -> float:
-        last_receipt = self._account_object.last_receipt
+        last_receipt = self.account_object.last_receipt
 
         if last_receipt is None:
             return STATE_UNAVAILABLE
@@ -384,12 +358,12 @@ class PikComfortLastReceiptSensor(_PikComfortAccountSensor):
 
     @property
     def device_state_attributes(self) -> Optional[Mapping[str, Any]]:
-        last_receipt = self._account_object.last_receipt
+        last_receipt = self.account_object.last_receipt
 
         if last_receipt is None:
             return None
 
-        account_object = self._account_object
+        account_object = self.account_object
 
         return {
             "type": last_receipt.type,
