@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from typing import Any, Final, Mapping, Optional, Union
+from typing import Any, Dict, Final, Mapping, Optional, Union
 
 import voluptuous as vol
 from homeassistant.components import persistent_notification
@@ -232,7 +232,7 @@ class PikComfortMeterSensor(BasePikComfortEntity, BinarySensorEntity):
     @staticmethod
     def get_submit_call_args(
         meter_object: PikComfortMeter, call_data: Mapping
-    ) -> Mapping[int, float]:
+    ) -> Dict[int, float]:
         indications: Mapping[str, Union[int, float]] = call_data[ATTR_READINGS]
         meter_tariffs = meter_object.tariffs
         is_incremental = call_data[ATTR_INCREMENTAL]
@@ -283,13 +283,13 @@ class PikComfortMeterSensor(BasePikComfortEntity, BinarySensorEntity):
 
         comment = event_data.get(ATTR_COMMENT)
         message = "Response comment not provided" if comment is None else str(comment)
-        meter_code = "<unavailable>" if meter is None else meter.factory_number
+        meter_number = "<unavailable>" if meter is None else meter.factory_number
 
         event_data = {
             ATTR_ENTITY_ID: self.entity_id,
             "meter_uid": self.meter_uid,
             "meter_type": self.meter_type,
-            "meter_code": None if meter is None else meter.factory_number,
+            "meter_number": None if meter is None else meter.factory_number,
             "call_params": dict(call_data),
             ATTR_SUCCESS: False,
             ATTR_COMMENT: None,
@@ -306,10 +306,10 @@ class PikComfortMeterSensor(BasePikComfortEntity, BinarySensorEntity):
 
         if notification_content is not False:
             payload = {
-                persistent_notification.ATTR_TITLE: title + " - №" + meter_code,
+                persistent_notification.ATTR_TITLE: title + " - №" + meter_number,
                 persistent_notification.ATTR_NOTIFICATION_ID: event_id
                 + "_"
-                + meter_code,
+                + meter_number,
                 persistent_notification.ATTR_MESSAGE: message,
             }
 
@@ -335,7 +335,7 @@ class PikComfortMeterSensor(BasePikComfortEntity, BinarySensorEntity):
         _LOGGER.debug(log_prefix + "Начало обработки передачи показаний")
 
         meter_object = self._meter_object
-        event_data = {}
+        event_data = {ATTR_READINGS: None}
 
         try:
             if meter_object is None:
@@ -343,7 +343,7 @@ class PikComfortMeterSensor(BasePikComfortEntity, BinarySensorEntity):
 
             submit_call_args = self.get_submit_call_args(meter_object, call_data)
 
-            event_data[ATTR_READINGS] = dict(submit_call_args)
+            event_data[ATTR_READINGS] = submit_call_args
 
             await meter_object.async_submit_readings(submit_call_args)
 
