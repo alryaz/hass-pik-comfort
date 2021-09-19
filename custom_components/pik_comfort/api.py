@@ -19,7 +19,6 @@ from typing import (
 
 import aiohttp
 import attr
-from prettyprinter import install_extras, pprint
 
 
 class PikComfortException(Exception):
