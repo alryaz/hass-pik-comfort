@@ -100,7 +100,7 @@ class PikComfortConfigFlow(ConfigFlow, domain=DOMAIN):
             ttl = await api_object.async_request_otp_token()
 
         except PikComfortException as error:
-            _LOGGER.debug(f"API error: {error}")
+            _LOGGER.error(f"Ошибка API: {error}")
             await api_object.async_close()
             return self.async_show_user_form(
                 user_input,
@@ -145,7 +145,7 @@ class PikComfortConfigFlow(ConfigFlow, domain=DOMAIN):
             await self._api_object.async_authenticate_otp(otp_token)
 
         except PikComfortException as error:
-            _LOGGER.debug(f"API error: {error}")
+            _LOGGER.error(f"Ошибка API: {error}")
             return self.async_show_form(
                 user_input,
                 errors={CONF_TOKEN: "auth_token_invalid"},
