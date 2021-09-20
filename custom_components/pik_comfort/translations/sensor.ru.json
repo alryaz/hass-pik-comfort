@@ -7,8 +7,8 @@
             "unknown": "[%key:common::state::unknown%]"
         },
         "pik_comfort_ticket": {
-            "received": "В работе",
-            "processing": "В обработке",
+            "received": "В обработке",
+            "processing": "В работе",
             "completed": "Выполнена",
             "denied": "Отклонена",
             "unknown": "[%key:common::state::unknown%]"

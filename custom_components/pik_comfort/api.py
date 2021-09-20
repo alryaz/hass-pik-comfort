@@ -1,3 +1,4 @@
+import logging
 from abc import ABC, abstractmethod
 from datetime import date, datetime
 from enum import IntEnum
@@ -17,6 +18,8 @@ from typing import (
 
 import aiohttp
 import attr
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class PikComfortException(Exception):
@@ -55,6 +58,17 @@ class PikComfortAPI:
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         await self._session.__aexit__(exc_type, exc_val, exc_tb)
 
+    def __repr__(self) -> str:
+        return (
+            f"<{self.__class__.__name__}("
+            f"username={repr(self.username)}, "
+            f"is_authenticated={self.is_authenticated}"
+            f">"
+        )
+
+    def __str__(self) -> str:
+        return f"{self.__class__.__name__}({self.username}, {self.is_authenticated})"
+
     @property
     def session(self) -> aiohttp.ClientSession:
         return self._session
@@ -74,12 +88,19 @@ class PikComfortAPI:
         if self.username is None:
             raise PikComfortException("Username is not set")
 
+        _LOGGER.debug(f"[{self}] Requesting OTP token")
+
         async with self._session.post(
             self.BASE_PIK_URL + "/request-sms-password/", data={"phone": self.username}
         ) as request:
             if request.status != 200:
                 # @TODO: read codes:
                 # {"code": "sms_timeout", "message": "...", "timeout": 16}
+                response_data = await request.text()
+                _LOGGER.error(
+                    f"[{self}] Could not request OTP token "
+                    f"({request.status}): {response_data}"
+                )
                 raise PikComfortException("Could not request SMS OTP")
 
             return (await request.json())["ttl"]
@@ -87,6 +108,8 @@ class PikComfortAPI:
     async def async_authenticate_otp(self, otp_token: str) -> None:
         if self.username is None:
             raise PikComfortException("Username is not set")
+
+        _LOGGER.debug(f"[{self}] Authenticating using provided OTP token: {otp_token}")
 
         async with self._session.post(
             self.BASE_PIK_URL + "/api-token-auth/",
@@ -98,6 +121,11 @@ class PikComfortAPI:
         ) as request:
             if request.status != 200:
                 # @TODO: read codes
+                response_data = await request.text()
+                _LOGGER.error(
+                    f"[{self}] Could not authenticate using OTP token "
+                    f"({request.status}): {response_data}"
+                )
                 raise PikComfortException("Could not authenticate using OTP token")
 
             resp_data = await request.json()
@@ -105,10 +133,16 @@ class PikComfortAPI:
             try:
                 self._user_id = resp_data["user"]
                 self.token = resp_data["token"]
-            except KeyError:
+            except (KeyError, TypeError) as error:
+                _LOGGER.error(
+                    f"[{self}] Could not extract user/token information "
+                    f"({error}): {resp_data}"
+                )
                 raise PikComfortException("Did not retrieve user/token information")
 
     async def async_update_data(self) -> None:
+        _LOGGER.debug(f"[{self}] Performing data retrieval")
+
         async with self._session.get(
             self.BASE_PIK_URL + "/api/v8/aggregate/dashboard-list/",
             headers={aiohttp.hdrs.AUTHORIZATION: "Token " + self.token},
@@ -116,11 +150,17 @@ class PikComfortAPI:
         ) as request:
             if request.status != 200:
                 # @TODO: read codes
+                response_data = await request.text()
+                _LOGGER.error(
+                    f"[{self}] Could not retrieve data "
+                    f"({request.status}): {response_data}"
+                )
                 raise PikComfortException("Could not retrieve user resuls")
 
             resp_data = await request.json()
 
         if (resp_data.get("count") or 0) < 1:
+            _LOGGER.error(f"[{self}] Retrieve data does not contain user information")
             raise PikComfortException("Could not retrieve user information")
 
         result = next(iter(resp_data["results"]))
@@ -1152,17 +1192,26 @@ class PikComfortMeter(BaseIdentifiableModel):
                 }
             )
 
+        _LOGGER.debug(f"[{self}] Performing readings submission: {request}")
+
         async with api.session.post(
             api.BASE_PIK_URL + "/api/v2/mobile/usermeterreading-list/",
             headers={aiohttp.hdrs.AUTHORIZATION: "Token " + api.token},
             json=request,
         ) as request:
             if request.status != 201:
+                # @TODO: read error codes
+                response_data = await request.text()
+                _LOGGER.error(
+                    f"[{self}] Could not submit readings "
+                    f"({request.status}): {response_data}"
+                )
                 raise PikComfortException("Could not submit readings")
 
             resp_data = await request.json()
 
         if not isinstance(resp_data, list):
+            _LOGGER.error(f"[{self}] Response data does not contain submission updates")
             raise PikComfortException("Invalid response data")
 
         return PikComfortMeterReading.create_from_json_list(resp_data, self.api)

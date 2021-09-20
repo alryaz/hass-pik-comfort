@@ -10,6 +10,7 @@ from homeassistant.const import CONF_TOKEN
 from homeassistant.core import callback
 from homeassistant.helpers import config_validation as cv
 
+from custom_components.pik_comfort import mask_username
 from custom_components.pik_comfort.const import CONF_PHONE_NUMBER, DOMAIN
 from custom_components.pik_comfort.api import PikComfortAPI, PikComfortException
 
@@ -71,21 +72,31 @@ class PikComfortConfigFlow(ConfigFlow, domain=DOMAIN):
                 user_input, errors={CONF_PHONE_NUMBER: "invalid_digits_count"}
             )
 
+        log_prefix = f"[{mask_username(phone_number)}] "
+
         auth_token = user_input.get(CONF_TOKEN) or None
 
         api_object = PikComfortAPI(phone_number, auth_token)
 
         if api_object.is_authenticated:
+            _LOGGER.debug(
+                log_prefix
+                + f"Попытка авторизации с помощью введённого токена авторизации"
+            )
             try:
                 await api_object.async_update_data()
             except PikComfortException as error:
-                _LOGGER.error(f"Ошибка API: {error}")
+                _LOGGER.error(log_prefix + f"Ошибка API: {error}")
                 await api_object.async_close()
 
                 return self.async_show_user_form(
                     user_input, errors={CONF_TOKEN: "auth_token_invalid"}
                 )
             else:
+                _LOGGER.debug(
+                    log_prefix
+                    + "Создание конфигурационной записи (метод: введённый токен авторизации)"
+                )
                 return self.async_create_entry(
                     title=self._format_phone_number(phone_number),
                     data={
@@ -96,11 +107,12 @@ class PikComfortConfigFlow(ConfigFlow, domain=DOMAIN):
 
         self._api_object = api_object
 
+        _LOGGER.debug(log_prefix + "Попытка запроса кода подтверждения СМС")
         try:
             ttl = await api_object.async_request_otp_token()
 
         except PikComfortException as error:
-            _LOGGER.error(f"Ошибка API: {error}")
+            _LOGGER.error(log_prefix + f"Ошибка API: {error}")
             await api_object.async_close()
             return self.async_show_user_form(
                 user_input,
@@ -132,8 +144,12 @@ class PikComfortConfigFlow(ConfigFlow, domain=DOMAIN):
             )
 
         phone_number = self._phone_number
+        log_prefix = f"[{mask_username(phone_number)}] "
+
         if time() >= self._otp_expires_at:
+            _LOGGER.error(log_prefix + "Код подтверждения СМС истёк")
             self._otp_expires_at = None
+
             return self.async_show_user_form(
                 {CONF_PHONE_NUMBER: phone_number},
                 errors={"base": "otp_token_expired"},
@@ -141,16 +157,21 @@ class PikComfortConfigFlow(ConfigFlow, domain=DOMAIN):
 
         otp_token = user_input[CONF_TOKEN]
 
+        _LOGGER.debug(log_prefix + "Попытка запроса кода подтверждения СМС")
         try:
             await self._api_object.async_authenticate_otp(otp_token)
 
         except PikComfortException as error:
-            _LOGGER.error(f"Ошибка API: {error}")
+            _LOGGER.error(log_prefix + f"Ошибка API: {error}")
             return self.async_show_form(
                 user_input,
                 errors={CONF_TOKEN: "auth_token_invalid"},
             )
 
+        _LOGGER.debug(
+            log_prefix
+            + "Создание конфигурационной записи (метод: новый токен авторизации)"
+        )
         return self.async_create_entry(
             title=self._format_phone_number(phone_number),
             data={CONF_PHONE_NUMBER: phone_number, CONF_TOKEN: self._api_object.token},
