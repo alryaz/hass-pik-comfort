@@ -1,5 +1,3 @@
-import asyncio
-import logging
 from abc import ABC, abstractmethod
 from datetime import date, datetime
 from enum import IntEnum
@@ -19,7 +17,6 @@ from typing import (
 
 import aiohttp
 import attr
-from prettyprinter import install_extras, pprint
 
 
 class PikComfortException(Exception):
@@ -32,12 +29,12 @@ class PikComfortAPI:
 
     def __init__(
         self,
-        username: str,
+        username: Optional[str] = None,
         token: Optional[str] = None,
         authentication_ttl: int = 31536000,
     ) -> None:
-        self._username = username
-        self._token = token
+        self.username = username
+        self.token = token
         self._authentication_ttl = authentication_ttl
 
         self._user_data: Optional[UserResult] = None
@@ -63,12 +60,8 @@ class PikComfortAPI:
         return self._session
 
     @property
-    def token(self) -> Optional[str]:
-        return self._token
-
-    @property
     def is_authenticated(self) -> bool:
-        return self._token is not None
+        return self.token is not None
 
     @property
     def user_data(self) -> Optional["UserResult"]:
@@ -78,8 +71,11 @@ class PikComfortAPI:
         await self._session.close()
 
     async def async_request_otp_token(self) -> int:
+        if self.username is None:
+            raise PikComfortException("Username is not set")
+
         async with self._session.post(
-            self.BASE_PIK_URL + "/request-sms-password/", data={"phone": self._username}
+            self.BASE_PIK_URL + "/request-sms-password/", data={"phone": self.username}
         ) as request:
             if request.status != 200:
                 # @TODO: read codes:
@@ -89,10 +85,13 @@ class PikComfortAPI:
             return (await request.json())["ttl"]
 
     async def async_authenticate_otp(self, otp_token: str) -> None:
+        if self.username is None:
+            raise PikComfortException("Username is not set")
+
         async with self._session.post(
             self.BASE_PIK_URL + "/api-token-auth/",
             data={
-                "username": self._username,
+                "username": self.username,
                 "password": otp_token,
                 "ttl": self._authentication_ttl,
             },
@@ -105,7 +104,7 @@ class PikComfortAPI:
 
             try:
                 self._user_id = resp_data["user"]
-                self._token = resp_data["token"]
+                self.token = resp_data["token"]
             except KeyError:
                 raise PikComfortException("Did not retrieve user/token information")
 

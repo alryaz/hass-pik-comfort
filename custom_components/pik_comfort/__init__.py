@@ -12,13 +12,11 @@ __all__ = (
 
 import asyncio
 import logging
-from datetime import timedelta
 from typing import Final
 
 from homeassistant import config_entries
-from homeassistant.const import CONF_SCAN_INTERVAL, CONF_TOKEN, CONF_USERNAME
+from homeassistant.const import CONF_TOKEN, CONF_USERNAME
 from homeassistant.exceptions import ConfigEntryNotReady
-from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.typing import ConfigType, HomeAssistantType
 
 from custom_components.pik_comfort.api import PikComfortAPI
@@ -28,8 +26,8 @@ from custom_components.pik_comfort.const import (
     CONF_CHARGES,
     CONF_METERS,
     CONF_NAME_FORMAT,
+    CONF_PHONE_NUMBER,
     CONF_USER_AGENT,
-    DATA_API_OBJECTS,
     DATA_ENTITIES,
     DATA_FINAL_CONFIG,
     DATA_PLATFORM_ENTITY_REGISTRARS,
@@ -58,10 +56,33 @@ async def async_setup(hass: HomeAssistantType, config: ConfigType):
     return True
 
 
+async def async_migrate_entry(
+    hass: HomeAssistantType, config_entry: config_entries.ConfigEntry
+) -> bool:
+    if config_entry.version > 1:
+        phone_number = config_entry.data[CONF_PHONE_NUMBER]
+    else:
+        phone_number = config_entry.data[CONF_USERNAME]
+
+    log_prefix = f"[{mask_username(phone_number)}] "
+    _LOGGER.info(
+        log_prefix + f"Обновление конфигурационной записи {config_entry.version}"
+    )
+
+    if config_entry.version == 1:
+        data = dict(config_entry.data)
+        data[CONF_PHONE_NUMBER] = data.pop(CONF_USERNAME)
+
+        config_entry.version = 2
+        hass.config_entries.async_update_entry(config_entry, data=data)
+
+    return True
+
+
 async def async_setup_entry(
     hass: HomeAssistantType, config_entry: config_entries.ConfigEntry
 ):
-    username = config_entry.data[CONF_USERNAME]
+    username = config_entry.data[CONF_PHONE_NUMBER]
 
     entry_id = config_entry.entry_id
 
@@ -72,13 +93,13 @@ async def async_setup_entry(
     user_cfg = {**config_entry.data}
 
     if config_entry.options:
-        if config_entry.options.get(CONF_USERNAME):
+        if config_entry.options.get(CONF_PHONE_NUMBER):
             _LOGGER.error("Options entry for configuration contains a username")
             return False
 
         user_cfg.update(config_entry.options)
 
-    phone_number, auth_token = user_cfg[CONF_USERNAME], user_cfg[CONF_TOKEN]
+    phone_number, auth_token = user_cfg[CONF_PHONE_NUMBER], user_cfg[CONF_TOKEN]
 
     _LOGGER.info(log_prefix + "Применение конфигурационной записи")
 
@@ -128,7 +149,7 @@ async def async_reload_entry(
     config_entry: config_entries.ConfigEntry,
 ) -> None:
     """Reload Pik Comfort entry"""
-    log_prefix = f"[{mask_username(config_entry.data[CONF_USERNAME])}] "
+    log_prefix = f"[{mask_username(config_entry.data[CONF_PHONE_NUMBER])}] "
     _LOGGER.info(log_prefix + "Перезагрузка интеграции")
     await hass.config_entries.async_reload(config_entry.entry_id)
 
@@ -138,7 +159,7 @@ async def async_unload_entry(
     config_entry: config_entries.ConfigEntry,
 ) -> bool:
     """Unload Pik Comfort entry"""
-    log_prefix = f"[{mask_username(config_entry.data[CONF_USERNAME])}] "
+    log_prefix = f"[{mask_username(config_entry.data[CONF_PHONE_NUMBER])}] "
     entry_id = config_entry.entry_id
 
     tasks = [
@@ -156,7 +177,7 @@ async def async_unload_entry(
         hass.data[DATA_UPDATE_LISTENERS].pop(entry_id)()
 
         # Close API object
-        await hass.data[DATA_API_OBJECTS].pop(entry_id).async_close()
+        await hass.data[DOMAIN].pop(entry_id).async_close()
 
         # Remove final configuration from entry
         hass.data[DATA_FINAL_CONFIG].pop(entry_id)

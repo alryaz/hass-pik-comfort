@@ -1,0 +1,28 @@
+{
+  "config": {
+    "error": {
+      "authentication_error": "Authentication error! This might be due to bad credentials or server connectivity issues.",
+      "otp_token_expired": "Confirmation token expired. Please, request a new one by pressing \"Next\".",
+      "auth_token_invalid": "Authentication token expired.",
+      "api_error": "API error. Please, check Home Assistant logs."
+    },
+    "step": {
+      "user": {
+        "data": {
+          "phone_number": "Номер телефона",
+          "token": "Токен авторизации"
+        },
+        "description": "Введите данные авторизации для приложения ПИК Комфорт.\n\nТокен авторизации не является обязательным. Без него, от Вас потребуется запросить код подтверждения на следующем шаге.",
+        "title": "Авторизация"
+      },
+      "otp_input": {
+        "data": {
+          "token": "Код из СМС"
+        },
+        "description": "Введите код подтверждения из СМС, отправленного на номер: {phone_number}.",
+        "title": "Подтверждение по СМС"
+      }
+    }
+  },
+  "title": "PIK Comfort"
+}

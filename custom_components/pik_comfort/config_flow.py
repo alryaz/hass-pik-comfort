@@ -6,17 +6,19 @@ from typing import Any, Dict, Optional
 from homeassistant.config_entries import ConfigFlow
 
 import voluptuous as vol
-from homeassistant.const import CONF_TOKEN, CONF_USERNAME
+from homeassistant.const import CONF_TOKEN
 from homeassistant.core import callback
 from homeassistant.helpers import config_validation as cv
 
-from custom_components.pik_comfort.const import DOMAIN
+from custom_components.pik_comfort.const import CONF_PHONE_NUMBER, DOMAIN
 from custom_components.pik_comfort.api import PikComfortAPI, PikComfortException
 
 _LOGGER = logging.getLogger(__name__)
 
 
 class PikComfortConfigFlow(ConfigFlow, domain=DOMAIN):
+    VERSION = 2
+
     def __init__(self):
         self._api_object: Optional[PikComfortAPI] = None
         self._otp_expires_at: Optional[float] = None
@@ -33,7 +35,8 @@ class PikComfortConfigFlow(ConfigFlow, domain=DOMAIN):
             data_schema=vol.Schema(
                 {
                     vol.Required(
-                        CONF_USERNAME, default=(user_input or {}).get(CONF_USERNAME)
+                        CONF_PHONE_NUMBER,
+                        default=(user_input or {}).get(CONF_PHONE_NUMBER),
                     ): cv.string,
                     vol.Optional(CONF_TOKEN): cv.string,
                 }
@@ -55,7 +58,7 @@ class PikComfortConfigFlow(ConfigFlow, domain=DOMAIN):
         if user_input is None:
             return self.async_show_user_form()
 
-        phone_number = re.sub(r"\D", "", user_input[CONF_USERNAME])
+        phone_number = re.sub(r"\D", "", user_input[CONF_PHONE_NUMBER])
 
         if len(phone_number) == 10:
             phone_number = "7" + phone_number
@@ -65,10 +68,12 @@ class PikComfortConfigFlow(ConfigFlow, domain=DOMAIN):
                 phone_number = "7" + phone_number[1:]
         else:
             return self.async_show_user_form(
-                user_input, errors={CONF_USERNAME: "invalid_digits_count"}
+                user_input, errors={CONF_PHONE_NUMBER: "invalid_digits_count"}
             )
 
-        api_object = PikComfortAPI(phone_number, user_input.get(CONF_TOKEN))
+        auth_token = user_input.get(CONF_TOKEN) or None
+
+        api_object = PikComfortAPI(phone_number, auth_token)
 
         if api_object.is_authenticated:
             try:
@@ -78,13 +83,13 @@ class PikComfortConfigFlow(ConfigFlow, domain=DOMAIN):
                 await api_object.async_close()
 
                 return self.async_show_user_form(
-                    user_input, errors={CONF_TOKEN: "token_invalid"}
+                    user_input, errors={CONF_TOKEN: "auth_token_invalid"}
                 )
             else:
                 return self.async_create_entry(
                     title=self._format_phone_number(phone_number),
                     data={
-                        CONF_USERNAME: phone_number,
+                        CONF_PHONE_NUMBER: phone_number,
                         CONF_TOKEN: user_input[CONF_TOKEN],
                     },
                 )
@@ -114,22 +119,24 @@ class PikComfortConfigFlow(ConfigFlow, domain=DOMAIN):
             if self._otp_input_schema is None:
                 self._otp_input_schema = vol.Schema(
                     {
-                        vol.Required(CONF_TOKEN): vol.All(
-                            vol.Match(r"\d{6}"), cv.string
-                        ),
+                        vol.Required(CONF_TOKEN): cv.string,
                     }
                 )
 
             return self.async_show_form(
-                step_id="otp_input", data_schema=self._otp_input_schema
+                step_id="otp_input",
+                data_schema=self._otp_input_schema,
+                description_placeholders={
+                    "phone_number": self._format_phone_number(self._phone_number)
+                },
             )
 
         phone_number = self._phone_number
         if time() >= self._otp_expires_at:
             self._otp_expires_at = None
             return self.async_show_user_form(
-                {CONF_USERNAME: phone_number},
-                errors={"base": "token_expired"},
+                {CONF_PHONE_NUMBER: phone_number},
+                errors={"base": "otp_token_expired"},
             )
 
         otp_token = user_input[CONF_TOKEN]
@@ -141,10 +148,10 @@ class PikComfortConfigFlow(ConfigFlow, domain=DOMAIN):
             _LOGGER.debug(f"API error: {error}")
             return self.async_show_form(
                 user_input,
-                errors={CONF_TOKEN: "token_invalid"},
+                errors={CONF_TOKEN: "auth_token_invalid"},
             )
 
         return self.async_create_entry(
             title=self._format_phone_number(phone_number),
-            data={CONF_USERNAME: phone_number, CONF_TOKEN: self._api_object.token},
+            data={CONF_PHONE_NUMBER: phone_number, CONF_TOKEN: self._api_object.token},
         )

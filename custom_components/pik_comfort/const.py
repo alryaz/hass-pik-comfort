@@ -70,6 +70,7 @@ ATTR_ZONES: Final = "zones"
 ATTR_INCREASE_RATIO: Final = "increase_ratio"
 ATTR_INCREASE_AMOUNT: Final = "increase_amount"
 
+CONF_PHONE_NUMBER: Final = "phone_number"
 CONF_ACCOUNTS: Final = "accounts"
 CONF_DEV_PRESENTATION: Final = "dev_presentation"
 CONF_CHARGES: Final = "charges"

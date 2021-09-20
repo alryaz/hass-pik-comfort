@@ -149,9 +149,16 @@ class PikComfortLastPaymentSensor(BasePikComfortEntity):
     def name(self) -> str:
         account_object = self.account_object
         if account_object is None:
-            return f"Last Payment {self.account_uid}"
+            account_id = self.account_uid
 
-        return f"Last Payment {account_object.number or account_object.premise_number or account_object.uid}"
+        else:
+            account_id = (
+                account_object.number
+                or account_object.premise_number
+                or account_object.uid
+            )
+
+        return f"Last Payment {account_id}"
 
     @property
     def unique_id(self) -> str:
