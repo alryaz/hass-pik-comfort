@@ -17,7 +17,7 @@ push_readings:
       required: false
       advanced: false
       default: false
-      example: 'false'
+      example: false
       selector:
         boolean:
     notification:
@@ -25,7 +25,7 @@ push_readings:
       required: false
       advanced: false
       default: false
-      example: 'true'
+      example: false
       selector:
         boolean:
     ignore_readings:
@@ -33,6 +33,73 @@ push_readings:
       required: false
       advanced: true
       default: false
-      example: 'false'
+      example: false
       selector:
         boolean:
+
+
+create_ticket:
+  description: Создать запрос в техническую поддержку
+  fields:
+    account_id:
+      description: 'Идентификатор лицевого счёта'
+      required: true
+      advanced: false
+      example: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+      selector:
+        text:
+          multiline: false
+    classifier_id:
+      description: 'Идентификатор классификатора'
+      required: true
+      advanced: false
+      example: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+      selector:
+        text:
+          multiline: false
+    message:
+      description: 'Содержание сообщения'
+      required: true
+      advanced: false
+      example: '...'
+      selector:
+        text:
+          multiline: true
+    ignore_classifier_check:
+      description: 'Игнорировать проверку классификатора'
+      required: false
+      advanced: true
+      default: false
+      example: false
+      selector:
+        boolean:
+
+search_ticket_classifiers:
+  description: Выполнить поиск по классификаторам
+  fields:
+    query:
+      description: 'Поисковой запрос'
+      required: true
+      advanced: false
+      example: 'электрика'
+      selector:
+        text:
+          multiline: false
+    notification:
+      description: 'Создать уведомление'
+      required: false
+      advanced: false
+      default: true
+      example: true
+      selector:
+        boolean:
+    max_results:
+      description: 'Максимальное количество результатов'
+      required: false
+      advanced: true
+      default: 10
+      example: 20
+      selector:
+        number:
+          min: 1
+          max: 100

@@ -78,16 +78,16 @@ async def async_process_update(
     old_meter_entities = list(meter_entities)
 
     # Process accounts
-    for account in api_object.user_data.accounts:
-        account_key = (account.type, account.uid)
+    for account in api_object.info.accounts:
+        account_key = (account.type, account.id)
 
         # Process meters per account
         for meter in account.meters:
-            meter_key = (meter.type, meter.uid)
+            meter_key = (meter.type, meter.id)
             existing_entity = None
 
             for entity in meter_entities:
-                if (entity.meter_type, entity.meter_uid) == meter_key:
+                if (entity.meter_type, entity.meter_id) == meter_key:
                     existing_entity = entity
                     old_meter_entities.remove(existing_entity)
                     break
@@ -128,27 +128,27 @@ class PikComfortMeterSensor(BasePikComfortEntity, BinarySensorEntity):
         self,
         config_entry_id: str,
         account_type: str,
-        account_uid: str,
+        account_id: str,
         meter_type: str,
-        meter_uid: str,
+        meter_id: str,
     ) -> None:
-        BasePikComfortEntity.__init__(self, config_entry_id, account_type, account_uid)
+        BasePikComfortEntity.__init__(self, config_entry_id, account_type, account_id)
         BinarySensorEntity.__init__(self)
 
         self.meter_type: str = meter_type
-        self.meter_uid: str = meter_uid
+        self.meter_id: str = meter_id
 
     @property
     def meter_object(self) -> Optional[PikComfortMeter]:
-        user_data = self.api_object.user_data
+        info = self.api_object.info
 
-        if user_data is None:
+        if info is None:
             return None
 
-        key = (self.meter_type, self.meter_uid)
-        for account in user_data.accounts:
+        key = (self.meter_type, self.meter_id)
+        for account in info.accounts:
             for meter in account.meters:
-                if (meter.type, meter.uid) == key:
+                if (meter.type, meter.id) == key:
                     return meter
 
         return None
@@ -158,7 +158,7 @@ class PikComfortMeterSensor(BasePikComfortEntity, BinarySensorEntity):
         meter_object = self.meter_object
 
         if meter_object is None:
-            return f"Meter {self.meter_uid}"
+            return f"Meter {self.meter_id}"
 
         if meter_object.meter_type == MeterResourceType.UNKNOWN:
             type_suffix = "Unknown Type"
@@ -174,7 +174,7 @@ class PikComfortMeterSensor(BasePikComfortEntity, BinarySensorEntity):
     @property
     def unique_id(self) -> str:
         meter_object = self.meter_object
-        return "meter__" + meter_object.type + "__" + meter_object.uid
+        return "meter__" + meter_object.type + "__" + meter_object.id
 
     # @property
     # def unit_of_measurement(self) -> str:
@@ -282,7 +282,7 @@ class PikComfortMeterSensor(BasePikComfortEntity, BinarySensorEntity):
 
         event_data = {
             ATTR_ENTITY_ID: self.entity_id,
-            "meter_uid": self.meter_uid,
+            "meter_uid": self.meter_id,
             "meter_type": self.meter_type,
             "meter_number": None if meter is None else meter.factory_number,
             "call_params": dict(call_data),

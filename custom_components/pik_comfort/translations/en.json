@@ -1,28 +1,61 @@
 {
-  "config": {
-    "error": {
-      "authentication_error": "Authentication error! This might be due to bad credentials or server connectivity issues.",
-      "otp_token_expired": "Confirmation token expired. Please, request a new one by pressing \"Next\".",
-      "auth_token_invalid": "Authentication token expired.",
-      "api_error": "API error. Please, check Home Assistant logs."
+    "config": {
+        "error": {
+            "server_error_throttled": "Server temporarily throttled requests",
+            "server_error_sms_timeout": "Requested new SMS code too early",
+            "authentication_error": "Authentication error! This might be due to bad credentials or server connectivity issues.",
+            "otp_token_expired": "Confirmation token expired. Please, request a new one by pressing \"Next\".",
+            "auth_token_invalid": "Authentication token expired.",
+            "api_error": "API error: {error_message}",
+            "server_error": "Server error ({error_code}): {error_message}",
+            "request_error": "Request error: {error_message}",
+            "unknown_error": "Unknown error: {error_message}"
+        },
+        "step": {
+            "user": {
+                "data": {
+                    "phone_number": "Phone number",
+                    "device_name": "Device name",
+                    "token": "Auth token"
+                },
+                "description": "Enter your credentials for the PIK Comfort app.\n\nAuth token is optional. Unless it is provided, you will be required to enter requested SMS OTP token at the next step.",
+                "title": "Authorization"
+            },
+            "otp_input": {
+                "data": {
+                    "otp_code": "SMS code",
+                    "request_new_otp_code": "Request new code"
+                },
+                "description": "Enter confirmation code send by SMS to: {phone_number}.\n\nCode will expire after {will_expire_at}.",
+                "title": "SMS Confirmation"
+            }
+        }
     },
-    "step": {
-      "user": {
-        "data": {
-          "phone_number": "Phone number",
-          "token": "Auth token"
+    "options": {
+        "error": {
+            "api_error": "API error: {error_message}",
+            "server_error": "Server error ({error_code}): {error_message}",
+            "request_error": "Request error: {error_message}",
+            "unknown_error": "Unknown error: {error_message}"
         },
-        "description": "Enter your credentials for the PIK Comfort app.\n\nAuth token is optional. Unless it is provided, you will be required to enter requested SMS OTP token at the next step.",
-        "title": "Authorization"
-      },
-      "otp_input": {
-        "data": {
-          "token": "SMS Token"
-        },
-        "description": "Enter confirmation token send by SMS to: {phone_number}.",
-        "title": "SMS Confirmation"
-      }
-    }
-  },
-  "title": "PIK Comfort"
+        "step": {
+            "init": {
+                "data": {
+                    "token": "Authentication token",
+                    "device_name": "Device name",
+                    "request_new_token": "Request new authentication token"
+                },
+                "description": ""
+            },
+            "otp_input": {
+                "data": {
+                    "otp_code": "SMS code",
+                    "request_new_otp_code": "Request new code"
+                },
+                "description": "Enter confirmation code send by SMS to: {phone_number}.\n\nCode will expire after {will_expire_at}.",
+                "title": "SMS Confirmation"
+            }
+        }
+    },
+    "title": "PIK Comfort"
 }

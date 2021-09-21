@@ -46,13 +46,13 @@ async def async_process_update(
     old_ticket_entities = list(ticket_entities)
 
     # Process accounts
-    for account in api_object.user_data.accounts:
+    for account in api_object.info.accounts:
         # Process last payment per account
-        account_key = (account.type, account.uid)
+        account_key = (account.type, account.id)
         existing_entity = None
 
         for entity in last_payment_entities:
-            if (entity.account_type, entity.account_uid) == account_key:
+            if (entity.account_type, entity.account_id) == account_key:
                 existing_entity = entity
                 old_last_payment_entities.remove(entity)
                 break
@@ -68,7 +68,7 @@ async def async_process_update(
         # key is the same
         existing_entity = None
         for entity in last_receipt_entities:
-            if (entity.account_type, entity.account_uid) == account_key:
+            if (entity.account_type, entity.account_id) == account_key:
                 existing_entity = entity
                 old_last_receipt_entities.remove(entity)
                 break
@@ -82,7 +82,7 @@ async def async_process_update(
 
         # Process tickets per account
         for ticket in account.tickets:
-            ticket_key = (ticket.type, ticket.uid)
+            ticket_key = (ticket.type, ticket.id)
             existing_entity = None
 
             for entity in ticket_entities:
@@ -149,20 +149,20 @@ class PikComfortLastPaymentSensor(BasePikComfortEntity):
     def name(self) -> str:
         account_object = self.account_object
         if account_object is None:
-            account_id = self.account_uid
+            account_id = self.account_id
 
         else:
             account_id = (
                 account_object.number
                 or account_object.premise_number
-                or account_object.uid
+                or account_object.id
             )
 
         return f"Last Payment {account_id}"
 
     @property
     def unique_id(self) -> str:
-        return f"last_payment__{self.account_type}__{self.account_uid}"
+        return f"last_payment__{self.account_type}__{self.account_id}"
 
     @property
     def available(self) -> bool:
@@ -198,9 +198,9 @@ class PikComfortLastPaymentSensor(BasePikComfortEntity):
             "timestamp": last_payment.timestamp.isoformat(),
             "payment_type": last_payment.payment_type,
             "source_name": last_payment.source_name,
-            "uid": last_payment.uid,
+            "uid": last_payment.id,
             "type": last_payment.type,
-            "account_uid": account_object.uid,
+            "account_id": account_object.id,
             "account_type": account_object.type,
             "account_number": account_object.number,
             ATTR_ATTRIBUTION: ATTRIBUTION,
@@ -212,32 +212,32 @@ class PikComfortTicketSensor(BasePikComfortEntity):
         self,
         config_entry_id: str,
         account_type: str,
-        account_uid: str,
+        account_id: str,
         ticket_type: str,
-        ticket_uid: str,
+        ticket_id: str,
     ) -> None:
-        super().__init__(config_entry_id, account_type, account_uid)
+        super().__init__(config_entry_id, account_type, account_id)
 
         self.ticket_type: str = ticket_type
-        self.ticket_uid: str = ticket_uid
+        self.ticket_id: str = ticket_id
 
     @property
     def _ticket_object(self) -> Optional[PikComfortTicket]:
-        user_data = self.api_object.user_data
-        if not user_data:
+        info = self.api_object.info
+        if not info:
             return None
 
-        key = (self.ticket_type, self.ticket_uid)
-        for account in user_data.accounts:
+        key = (self.ticket_type, self.ticket_id)
+        for account in info.accounts:
             for ticket in account.tickets:
-                if (ticket.type, ticket.uid) == key:
+                if (ticket.type, ticket.id) == key:
                     return ticket
 
         return None
 
     @property
     def unique_id(self) -> str:
-        return f"ticket__{self.ticket_type}__{self.ticket_uid}"
+        return f"ticket__{self.ticket_type}__{self.ticket_id}"
 
     @property
     def available(self) -> bool:
@@ -273,7 +273,7 @@ class PikComfortTicketSensor(BasePikComfortEntity):
     @property
     def name(self) -> str:
         ticket_object = self._ticket_object
-        ticket_id = self.ticket_uid if ticket_object is None else ticket_object.number
+        ticket_id = self.ticket_id if ticket_object is None else ticket_object.number
         return f"Ticket №{ticket_id}"
 
     @property
@@ -305,7 +305,9 @@ class PikComfortTicketSensor(BasePikComfortEntity):
             "is_liked": ticket_object.is_liked,
             "comments_count": len(ticket_object.comments),
             "attachments_count": len(ticket_object.attachments),
-            "account_uid": account_object.uid,
+            "id": ticket_object.id,
+            "type": ticket_object.type,
+            "account_id": account_object.id,
             "account_type": account_object.type,
             "account_number": account_object.number,
             ATTR_ATTRIBUTION: ATTRIBUTION,
@@ -334,16 +336,16 @@ class PikComfortLastReceiptSensor(BasePikComfortEntity):
     def name(self) -> str:
         account_object = self.account_object
         if account_object is None:
-            return f"Last Receipt {self.account_uid}"
+            return f"Last Receipt {self.account_id}"
 
         account_id = (
-            account_object.number or account_object.premise_number or account_object.uid
+            account_object.number or account_object.premise_number or account_object.id
         )
         return f"Last Receipt {account_id}"
 
     @property
     def unique_id(self) -> str:
-        return f"last_receipt__{self.account_type}__{self.account_uid}"
+        return f"last_receipt__{self.account_type}__{self.account_id}"
 
     @property
     def available(self) -> bool:
@@ -385,7 +387,7 @@ class PikComfortLastReceiptSensor(BasePikComfortEntity):
             # "contents": last_receipt.contents,
             "paid": last_receipt.paid or 0.0,
             "debt": last_receipt.debt or 0.0,
-            "account_uid": account_object.uid,
+            "account_id": account_object.id,
             "account_type": account_object.type,
             "account_number": account_object.number,
             ATTR_ATTRIBUTION: ATTRIBUTION,

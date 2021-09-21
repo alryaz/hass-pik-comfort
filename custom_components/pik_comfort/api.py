@@ -1,10 +1,14 @@
+import asyncio
 import logging
+import random
+import string
 from abc import ABC, abstractmethod
 from datetime import date, datetime
 from enum import IntEnum
 from typing import (
     Any,
     ClassVar,
+    Final,
     Iterable,
     List,
     Mapping,
@@ -18,12 +22,42 @@ from typing import (
 
 import aiohttp
 import attr
+from multidict import CIMultiDict
+from pytz import timezone
 
 _LOGGER = logging.getLogger(__name__)
 
 
+DEFAULT_SDK_VERSION: Final = 30
+DEFAULT_VERSION_NAME: Final = "1.10.0"
+DEFAULT_VERSION_CODE: Final = 81
+
+MOSCOW_TIMEZONE: Final = timezone("Europe/Moscow")
+
+
+def get_random_device_name() -> str:
+    return "".join(
+        random.choices(string.ascii_uppercase + string.digits, k=random.randint(4, 8))
+    )
+
+
 class PikComfortException(Exception):
     pass
+
+
+class RequestError(PikComfortException):
+    def __str__(self) -> str:
+        return self.args[0]
+
+
+class ServerError(RequestError):
+    @property
+    def error_code(self) -> str:
+        return self.args[3]
+
+    @property
+    def error_message(self) -> Optional[str]:
+        return self.args[4]
 
 
 class PikComfortAPI:
@@ -35,14 +69,25 @@ class PikComfortAPI:
         username: Optional[str] = None,
         token: Optional[str] = None,
         authentication_ttl: int = 31536000,
+        *,
+        device_name: Optional[str] = None,
+        version_name: str = DEFAULT_VERSION_NAME,
+        version_code: int = DEFAULT_VERSION_CODE,
+        sdk_version: int = DEFAULT_SDK_VERSION,
     ) -> None:
         self.username = username
         self.token = token
         self._authentication_ttl = authentication_ttl
 
-        self._user_data: Optional[UserResult] = None
+        self.sdk_version = sdk_version
+        self.device_name = device_name or get_random_device_name()
+        self.version_name = version_name
+        self.version_code = version_code
+
+        self._info: Optional[InfoResult] = None
 
         self._user_id: Optional[str] = None
+        self._classifiers: Optional[List[TicketClassifier]] = None
 
         self._session = aiohttp.ClientSession(
             headers={
@@ -74,114 +119,300 @@ class PikComfortAPI:
         return self._session
 
     @property
+    def classifiers(self) -> Optional[List["TicketClassifier"]]:
+        return self._classifiers
+
+    @property
     def is_authenticated(self) -> bool:
         return self.token is not None
 
     @property
-    def user_data(self) -> Optional["UserResult"]:
-        return self._user_data
+    def info(self) -> Optional["InfoResult"]:
+        return self._info
 
     async def async_close(self) -> None:
         await self._session.close()
 
-    async def async_request_otp_token(self) -> int:
+    async def async_request(
+        self,
+        sub_url: str,
+        *,
+        authenticated: Optional[bool] = None,
+        action_title: Optional[str] = None,
+        expected_status: Optional[int] = 200,
+        method: Optional[str] = None,
+        **kwargs,
+    ):
+        full_url = self.BASE_PIK_URL + sub_url
+
+        if action_title is None:
+            action_title = f"request to {full_url}"
+
+        if authenticated is not False:
+            if self.is_authenticated:
+                headers = CIMultiDict(
+                    {aiohttp.hdrs.AUTHORIZATION: "Token " + self.token}
+                )
+                if "headers" in kwargs:
+                    headers.update(kwargs["headers"])
+                kwargs["headers"] = headers
+            elif authenticated is True:
+                _LOGGER.error(
+                    f"[{self}] Account is not authenticated during {action_title}"
+                )
+                raise PikComfortException("Account is not authenticated")
+
+        if method is None:
+            if "data" in kwargs or "json" in kwargs:
+                method = aiohttp.hdrs.METH_POST
+            else:
+                method = aiohttp.hdrs.METH_GET
+
+        response_status = None
+        response_data = None
+        _LOGGER.debug(
+            f"[{self}] Performing {action_title} ({method} request to: {full_url})"
+        )
+        try:
+            # noinspection PyArgumentList
+            async with self._session.request(method, full_url, **kwargs) as response:
+                response_status = response.status
+                if expected_status is not None and response_status != expected_status:
+                    try:
+                        response_contents = await response.json()
+                    except aiohttp.ClientError:
+                        response_contents = await response.text()
+                    else:
+                        try:
+                            error_code = response_contents["code"]
+                        except KeyError:
+                            _LOGGER.error(
+                                f"[{self}] Unexpected response while performing "
+                                f"{action_title} ({response_status})"
+                            )
+                            raise RequestError(
+                                "Unexpected response",
+                                response_status,
+                                response_contents,
+                            )
+
+                        else:
+                            error_message = response_contents.get("message")
+                            _LOGGER.error(
+                                f"[{self}] Server error while performing "
+                                f"{action_title} (code: {error_code}): {error_message}"
+                            )
+                            raise ServerError(
+                                "Server error",
+                                response_status,
+                                response_contents,
+                                error_code,
+                                error_message,
+                            )
+
+                    _LOGGER.error(
+                        f"[{self}] Error performing {action_title} "
+                        f"({response.status}): {response_contents}"
+                    )
+
+                response_data = await response.json()
+
+        except aiohttp.ClientError as error:
+            _LOGGER.error(f"[{self}] Error performing {action_title}: {error}")
+            raise RequestError("Client error", response_status, response_data)
+
+        except asyncio.TimeoutError:
+            _LOGGER.error(
+                f"[{self}] Timeout performing {action_title} "
+                f"(total timeout: {self._session.timeout.total})"
+            )
+            raise RequestError("Timeout error", None, None)
+
+        response_data_str = str(response_data)
+        if len(response_data_str) > 150:
+            response_data_str = response_data_str[:147] + "..."
+
+        _LOGGER.debug(
+            f"[{self}] Received response after {action_title}: {response_data_str}"
+        )
+
+        return response_data
+
+    async def async_request_otp_code(self) -> int:
         if self.username is None:
             raise PikComfortException("Username is not set")
 
-        _LOGGER.debug(f"[{self}] Requesting OTP token")
+        response_data = await self.async_request(
+            "/request-sms-password/",
+            data={"phone": self.username},
+            action_title="OTP token request",
+            authenticated=False,
+        )
 
-        async with self._session.post(
-            self.BASE_PIK_URL + "/request-sms-password/", data={"phone": self.username}
-        ) as request:
-            if request.status != 200:
-                # @TODO: read codes:
-                # {"code": "sms_timeout", "message": "...", "timeout": 16}
-                response_data = await request.text()
-                _LOGGER.error(
-                    f"[{self}] Could not request OTP token "
-                    f"({request.status}): {response_data}"
-                )
-                raise PikComfortException("Could not request SMS OTP")
-
-            return (await request.json())["ttl"]
+        try:
+            return response_data["ttl"]
+        except KeyError:
+            _LOGGER.error(
+                f"[{self}] Response does not contain TTL details: {response_data}"
+            )
+            raise PikComfortException("Response does not contain TTL details")
 
     async def async_authenticate_otp(self, otp_token: str) -> None:
         if self.username is None:
             raise PikComfortException("Username is not set")
 
-        _LOGGER.debug(f"[{self}] Authenticating using provided OTP token: {otp_token}")
-
-        async with self._session.post(
-            self.BASE_PIK_URL + "/api-token-auth/",
+        resp_data = await self.async_request(
+            "/api-token-auth/",
             data={
                 "username": self.username,
                 "password": otp_token,
                 "ttl": self._authentication_ttl,
             },
-        ) as request:
-            if request.status != 200:
-                # @TODO: read codes
-                response_data = await request.text()
-                _LOGGER.error(
-                    f"[{self}] Could not authenticate using OTP token "
-                    f"({request.status}): {response_data}"
-                )
-                raise PikComfortException("Could not authenticate using OTP token")
+            action_title=f"authentication with OTP token ({otp_token})",
+            authenticated=False,
+        )
 
-            resp_data = await request.json()
+        try:
+            user_id = resp_data["user"]
+            token = resp_data["token"]
+        except (KeyError, TypeError) as error:
+            _LOGGER.error(
+                f"[{self}] Could not extract user/token information "
+                f"({error}): {resp_data}"
+            )
+            raise PikComfortException("Did not retrieve user/token information")
+        else:
+            self._user_id = user_id
+            self.token = token
 
-            try:
-                self._user_id = resp_data["user"]
-                self.token = resp_data["token"]
-            except (KeyError, TypeError) as error:
-                _LOGGER.error(
-                    f"[{self}] Could not extract user/token information "
-                    f"({error}): {resp_data}"
-                )
-                raise PikComfortException("Did not retrieve user/token information")
-
-    async def async_update_data(self) -> None:
-        _LOGGER.debug(f"[{self}] Performing data retrieval")
-
-        async with self._session.get(
-            self.BASE_PIK_URL + "/api/v8/aggregate/dashboard-list/",
-            headers={aiohttp.hdrs.AUTHORIZATION: "Token " + self.token},
+    async def async_update_info(self) -> "InfoResult":
+        response_data = await self.async_request(
+            "/api/v8/aggregate/dashboard-list/",
             params={"tickets_size": "10"},
-        ) as request:
-            if request.status != 200:
-                # @TODO: read codes
-                response_data = await request.text()
-                _LOGGER.error(
-                    f"[{self}] Could not retrieve data "
-                    f"({request.status}): {response_data}"
-                )
-                raise PikComfortException("Could not retrieve user resuls")
+            action_title="data retrieval",
+            authenticated=True,
+        )
 
-            resp_data = await request.json()
-
-        if (resp_data.get("count") or 0) < 1:
+        data_count = response_data.get("count") or 0
+        if data_count < 1:
             _LOGGER.error(f"[{self}] Retrieve data does not contain user information")
             raise PikComfortException("Could not retrieve user information")
+        elif data_count > 1:
+            _LOGGER.warning(
+                f"[{self}] Received more than one response for data retrieval"
+            )
 
-        result = next(iter(resp_data["results"]))
+        info_data = next(iter(response_data["results"]))
+        info_object = self._info
 
-        user_data = self._user_data
-
-        if user_data is None:
-            user_data = UserResult.create_from_json(result, self)
-            self._user_data = user_data
+        if info_object is None:
+            info_object = InfoResult.create_from_json(info_data, self)
+            self._info = info_object
         else:
-            user_data.update_from_json(result)
+            info_object.update_from_json(info_data)
 
-    async def async_update_meters(self) -> None:
-        pass
+        return info_object
 
-    async def async_update_invoices(self) -> None:
-        pass
+    async def async_update_classifiers(self) -> List["TicketClassifier"]:
+        response_data = await self.async_request(
+            "/api/v3/classifier-list/",
+            params={"page_size": 500},
+            action_title="classifiers retrieval",
+            authenticated=True,
+        )
+
+        current_classifiers = self._classifiers
+        if current_classifiers is None:
+            current_classifiers = TicketClassifier.create_from_json_list(
+                response_data["results"], self
+            )
+            self._classifiers = current_classifiers
+        else:
+            TicketClassifier.update_list_with_models(
+                current_classifiers, response_data["results"], self
+            )
+
+        return current_classifiers
+
+    async def async_create_ticket(
+        self,
+        classifier_id: str,
+        description: str,
+        account_id: Optional[str] = None,
+        *,
+        check_account: bool = True,
+        check_classifier: bool = True,
+    ):
+        if account_id is None or check_account:
+            info = self.info
+            if info is None:
+                raise PikComfortException("Information must be updated")
+
+            accounts = info.accounts
+            if account_id is None and len(accounts) > 1:
+                raise PikComfortException("More than one account to guess")
+            elif not accounts:
+                raise PikComfortException("No account to derive ID from")
+            if account_id is None:
+                account_id = next(iter(accounts)).id
+            else:
+                found_account = None
+                for account in info.accounts:
+                    if account.id == account_id:
+                        found_account = account
+                        break
+
+                if found_account is None:
+                    raise PikComfortException("No matching account within info")
+
+        if check_classifier:
+            classifiers = self._classifiers
+            if classifiers is None:
+                raise PikComfortException("Classifiers must be updated")
+
+            found_classifier = None
+            for classifier in classifiers:
+                if classifier.id == classifier_id:
+                    found_classifier = classifier
+                    break
+
+            if found_classifier is None:
+                raise PikComfortException("Classifier was not found")
+
+            children = found_classifier.children
+            if children:
+                _LOGGER.error(
+                    f'Classifier with ID "{found_classifier.id}" contains '
+                    f"{len(children)} children. Requests are expected "
+                    f"to be made using classifiers without children."
+                )
+                raise PikComfortException("Classifier contains children")
+
+        moscow_time = datetime.now(tz=MOSCOW_TIMEZONE)
+        return PikComfortTicket.create_from_json(
+            await self.async_request(
+                "/api/v3/ticket-list/",
+                data={
+                    "classifier_id": classifier_id,
+                    "technical_data": (
+                        f"MobileApp, "
+                        f"Android SDK {self.sdk_version}, "
+                        f"{self.device_name}, "
+                        f"version name: {self.version_name} "
+                        f"version code: {self.version_code}, "
+                        f"{moscow_time.strftime('%d.%m.%Y %H:%M:%S')} "
+                        f"Москва, стандартное время"
+                    ),
+                    "account_id": account_id,
+                    "description": description,
+                },
+            ),
+            self,
+        )
 
 
 @attr.s(slots=True)
-class BaseModel(ABC):
+class _BaseModel(ABC):
     api: PikComfortAPI = attr.ib(repr=False)
 
     @classmethod
@@ -206,8 +437,8 @@ _T = TypeVar("_T")
 
 
 @attr.s(slots=True)
-class BaseIdentifiableModel(BaseModel, ABC):
-    uid: str = attr.ib()
+class _BaseIdentifiableModel(_BaseModel, ABC):
+    id: str = attr.ib()
     type: str = attr.ib()
 
     @classmethod
@@ -245,7 +476,7 @@ class BaseIdentifiableModel(BaseModel, ABC):
 
 
 @attr.s(slots=True)
-class UserResult(BaseIdentifiableModel):
+class InfoResult(_BaseIdentifiableModel):
     phone: str = attr.ib()
     gender: str = attr.ib()
     first_name: str = attr.ib()
@@ -269,7 +500,7 @@ class UserResult(BaseIdentifiableModel):
 
         return cls(
             api=api_object,
-            uid=json_data["_uid"],
+            id=json_data["_uid"],
             type=json_data["_type"],
             phone=json_data["phone"],
             gender=json_data["gender"],
@@ -297,7 +528,7 @@ class UserResult(BaseIdentifiableModel):
             self.accounts, json_data["accounts"], self.api
         )
 
-        self.uid = json_data["_uid"]
+        self.id = json_data["_uid"]
         self.type = json_data["_type"]
         self.phone = json_data["phone"]
         self.gender = json_data["gender"]
@@ -313,7 +544,7 @@ class UserResult(BaseIdentifiableModel):
 
 
 @attr.s(slots=True)
-class PikComfortAccount(BaseIdentifiableModel):
+class PikComfortAccount(_BaseIdentifiableModel):
     banned: bool = attr.ib()
     address: str = attr.ib()
     premise_number: str = attr.ib()
@@ -432,7 +663,7 @@ class PikComfortAccount(BaseIdentifiableModel):
 
         return cls(
             api=api_object,
-            uid=json_data["_uid"],
+            id=json_data["_uid"],
             type=json_data["_type"],
             banned=json_data["banned"],
             address=json_data["address"],
@@ -476,7 +707,8 @@ class PikComfortAccount(BaseIdentifiableModel):
         )
 
     def update_from_json(self, json_data: Mapping[str, Any]) -> None:
-        # @TODO: add uid assertion
+        assert self.id == json_data["_uid"], "UID does not match"
+        assert self.type == json_data["_type"], "type does not match"
 
         self.address_formats.update_from_json(json_data["address_formats"])
         self.building.update_from_json(json_data["building"])
@@ -524,9 +756,25 @@ class PikComfortAccount(BaseIdentifiableModel):
         self.emergency_phone_number = json_data["emergency_phone_number"]
         self.linked_at = linked_at
 
+    async def async_create_ticket(
+        self,
+        classifier_id: str,
+        description: str,
+        *,
+        check_classifier: bool = True,
+        check_account: bool = True,
+    ) -> "PikComfortTicket":
+        return await self.api.async_create_ticket(
+            classifier_id,
+            description,
+            self.id,
+            check_classifier=check_classifier,
+            check_account=check_account,
+        )
+
 
 @attr.s(slots=True)
-class PikComfortPremise(BaseIdentifiableModel):
+class PikComfortPremise(_BaseIdentifiableModel):
     number: str = attr.ib()
     address: str = attr.ib()
     building: str = attr.ib()
@@ -546,7 +794,7 @@ class PikComfortPremise(BaseIdentifiableModel):
 
         return cls(
             api=api_object,
-            uid=json_data["_uid"],
+            id=json_data["_uid"],
             type=json_data["_type"],
             number=json_data["number"],
             address=json_data["address"],
@@ -563,7 +811,7 @@ class PikComfortPremise(BaseIdentifiableModel):
     def update_from_json(self, json_data: Mapping[str, Any]) -> None:
         self.address_formats.update_from_json(json_data["address_formats"])
 
-        self.uid = json_data["_uid"]
+        self.id = json_data["_uid"]
         self.type = json_data["_type"]
         self.number = json_data["number"]
         self.address = json_data["address"]
@@ -577,7 +825,7 @@ class PikComfortPremise(BaseIdentifiableModel):
 
 
 @attr.s(slots=True)
-class PikComfortBuilding(BaseIdentifiableModel):
+class PikComfortBuilding(_BaseIdentifiableModel):
     address: str = attr.ib()
     type_id: int = attr.ib()
     geo_location: Tuple[float, float] = attr.ib()
@@ -595,7 +843,7 @@ class PikComfortBuilding(BaseIdentifiableModel):
 
         return cls(
             api=api_object,
-            uid=json_data["_uid"],
+            id=json_data["_uid"],
             type=json_data["_type"],
             address=json_data["address"],
             type_id=json_data["type"],
@@ -611,7 +859,7 @@ class PikComfortBuilding(BaseIdentifiableModel):
 
         geo_location = tuple(json_data["geo_location"])
 
-        self.uid = json_data["_uid"]
+        self.id = json_data["_uid"]
         self.type = json_data["_type"]
         self.address = json_data["address"]
         self.type_id = json_data["type"]
@@ -622,7 +870,7 @@ class PikComfortBuilding(BaseIdentifiableModel):
 
 
 @attr.s(slots=True)
-class PikComfortAddressFormat(BaseModel):
+class PikComfortAddressFormat(_BaseModel):
     all: str = attr.ib()
     street_only: str = attr.ib()
     finishing_with_village: str = attr.ib()
@@ -657,7 +905,7 @@ class TicketStatus(IntEnum):
 
 
 @attr.s(slots=True)
-class PikComfortTicket(BaseIdentifiableModel):
+class PikComfortTicket(_BaseIdentifiableModel):
     number: str = attr.ib()
     description: str = attr.ib()
     classifier_id: str = attr.ib()
@@ -697,7 +945,7 @@ class PikComfortTicket(BaseIdentifiableModel):
 
         return cls(
             api=api_object,
-            uid=json_data["_uid"],
+            id=json_data["_uid"],
             type=json_data["_type"],
             number=json_data["number"],
             description=json_data["description"],
@@ -713,7 +961,7 @@ class PikComfortTicket(BaseIdentifiableModel):
         )
 
     def update_from_json(self, json_data: Mapping[str, Any]) -> None:
-        assert self.uid == json_data["_uid"], "UID does not match"
+        assert self.id == json_data["_uid"], "UID does not match"
         assert self.type == json_data["_type"], "type does not match"
 
         PikComfortComment.update_list_with_models(
@@ -737,7 +985,7 @@ class PikComfortTicket(BaseIdentifiableModel):
 
 
 @attr.s(slots=True)
-class PikComfortComment(BaseIdentifiableModel):
+class PikComfortComment(_BaseIdentifiableModel):
     ticket: str = attr.ib()
     text: str = attr.ib()
     source_created: str = attr.ib()
@@ -756,7 +1004,7 @@ class PikComfortComment(BaseIdentifiableModel):
 
         return cls(
             api=api_object,
-            uid=json_data["_uid"],
+            id=json_data["_uid"],
             type=json_data["_type"],
             ticket=json_data["ticket"],
             text=json_data["text"],
@@ -770,7 +1018,7 @@ class PikComfortComment(BaseIdentifiableModel):
         )
 
     def update_from_json(self, json_data: Mapping[str, Any]) -> None:
-        assert self.uid == json_data["_uid"], "UID does not match"
+        assert self.id == json_data["_uid"], "UID does not match"
         assert self.type == json_data["_type"], "type does not match"
 
         self.ticket = json_data["ticket"]
@@ -783,8 +1031,8 @@ class PikComfortComment(BaseIdentifiableModel):
 
 
 @attr.s(slots=True)
-class PikComfortAttachmentImage(BaseModel):
-    uid: str = attr.ib()
+class PikComfortAttachmentImage(_BaseModel):
+    id: str = attr.ib()
     created: datetime = attr.ib()
     name: str = attr.ib()
     size: int = attr.ib()
@@ -800,7 +1048,7 @@ class PikComfortAttachmentImage(BaseModel):
 
         return cls(
             api=api_object,
-            uid=json_data["uid"],
+            id=json_data["uid"],
             created=created,
             name=json_data["name"],
             size=json_data["size"],
@@ -811,7 +1059,7 @@ class PikComfortAttachmentImage(BaseModel):
         )
 
     def update_from_json(self, json_data: Mapping[str, Any]) -> None:
-        assert self.uid == json_data["uid"], "UID does not match"
+        assert self.id == json_data["uid"], "UID does not match"
 
         tags = tuple(json_data["tags"])
         created = datetime.fromisoformat(json_data["created"])
@@ -833,12 +1081,12 @@ class PikComfortAttachmentImage(BaseModel):
     ) -> None:
         cleanup: Set[str] = set()
         for item_data in json_data_list:
-            attachment_uid = item_data["uid"]
-            cleanup.add(attachment_uid)
+            attachment_id = item_data["uid"]
+            cleanup.add(attachment_id)
             current_attachment = None
 
             for existing_attachment in target_list:
-                if existing_attachment.uid == attachment_uid:
+                if existing_attachment.uid == attachment_id:
                     current_attachment = existing_attachment
                     break
 
@@ -856,7 +1104,7 @@ class PikComfortAttachmentImage(BaseModel):
 
 
 @attr.s(slots=True)
-class PikComfortReceipt(BaseModel):
+class PikComfortReceipt(_BaseModel):
     type: str = attr.ib()
     period: date = attr.ib()
     charge: float = attr.ib()
@@ -954,7 +1202,7 @@ class PikComfortReceipt(BaseModel):
 
 
 @attr.s(slots=True)
-class PikComfortReceiptContent(BaseIdentifiableModel):
+class PikComfortReceiptContent(_BaseIdentifiableModel):
     import_id: str = attr.ib()
     title: str = attr.ib()
     display_name: Optional[str] = attr.ib()
@@ -978,7 +1226,7 @@ class PikComfortReceiptContent(BaseIdentifiableModel):
 
         return cls(
             api=api_object,
-            uid=json_data["_uid"],
+            id=json_data["_uid"],
             type=json_data["_type"],
             import_id=json_data["import_id"],
             title=json_data["title"],
@@ -997,7 +1245,7 @@ class PikComfortReceiptContent(BaseIdentifiableModel):
         )
 
     def update_from_json(self, json_data: Mapping[str, Any]) -> None:
-        assert self.uid == json_data["_uid"], "UID does not match"
+        assert self.id == json_data["_uid"], "UID does not match"
         assert self.type == json_data["_type"], "type does not match"
 
         TurnoverBalanceRecord.update_list_with_models(
@@ -1022,7 +1270,7 @@ class PikComfortReceiptContent(BaseIdentifiableModel):
 
 
 @attr.s(slots=True)
-class TurnoverBalanceRecord(BaseIdentifiableModel):
+class TurnoverBalanceRecord(_BaseIdentifiableModel):
     service_name: str = attr.ib()
     service_code: str = attr.ib()
     initial: float = attr.ib()
@@ -1037,7 +1285,7 @@ class TurnoverBalanceRecord(BaseIdentifiableModel):
     def create_from_json(cls, json_data: Mapping[str, Any], api_object: PikComfortAPI):
         return cls(
             api=api_object,
-            uid=json_data["_uid"],
+            id=json_data["_uid"],
             type=json_data["_type"],
             service_name=json_data["service_name"],
             service_code=json_data["service_code"],
@@ -1051,7 +1299,7 @@ class TurnoverBalanceRecord(BaseIdentifiableModel):
         )
 
     def update_from_json(self, json_data: Mapping[str, Any]) -> None:
-        assert self.uid == json_data["_uid"], "UID does not match"
+        assert self.id == json_data["_uid"], "UID does not match"
         assert self.type == json_data["_type"], "type does not match"
 
         self.service_name = json_data["service_name"]
@@ -1082,7 +1330,7 @@ class MeterResourceType(IntEnum):
 
 
 @attr.s(slots=True)
-class PikComfortMeter(BaseIdentifiableModel):
+class PikComfortMeter(_BaseIdentifiableModel):
     factory_number: str = attr.ib()
     resource_type_id: int = attr.ib()
     has_user_readings: bool = attr.ib()
@@ -1113,7 +1361,7 @@ class PikComfortMeter(BaseIdentifiableModel):
 
         return cls(
             api=api_object,
-            uid=json_data["_uid"],
+            id=json_data["_uid"],
             type=json_data["_type"],
             factory_number=json_data["factory_number"],
             resource_type_id=json_data["resource_type"],
@@ -1131,7 +1379,7 @@ class PikComfortMeter(BaseIdentifiableModel):
         )
 
     def update_from_json(self, json_data: Mapping[str, Any]) -> None:
-        assert self.uid == json_data["_uid"], "UID does not match"
+        assert self.id == json_data["_uid"], "UID does not match"
         assert self.type == json_data["_type"], "type does not match"
 
         Tariff.update_list_with_models(self.tariffs, json_data["tariffs"])
@@ -1164,7 +1412,7 @@ class PikComfortMeter(BaseIdentifiableModel):
             raise PikComfortException("API is not authenticated")
 
         request = []
-        meter_uid = self.uid
+        meter_uid = self.id
 
         if isinstance(values, Mapping):
             iterator = values.items()
@@ -1218,7 +1466,7 @@ class PikComfortMeter(BaseIdentifiableModel):
 
 
 @attr.s(slots=True)
-class Tariff(BaseModel):
+class Tariff(_BaseModel):
     type: int = attr.ib()
     value: float = attr.ib()
     average_in_month: float = attr.ib()
@@ -1308,7 +1556,7 @@ class PaymentStatus(IntEnum):
 
 
 @attr.s(slots=True)
-class PikComfortPayment(BaseIdentifiableModel):
+class PikComfortPayment(_BaseIdentifiableModel):
     amount: float = attr.ib()
     status_id: int = attr.ib()
     check_url: str = attr.ib()
@@ -1328,7 +1576,7 @@ class PikComfortPayment(BaseIdentifiableModel):
 
         return cls(
             api=api_object,
-            uid=json_data["_uid"],
+            id=json_data["_uid"],
             type=json_data["_type"],
             amount=json_data["amount"],
             status_id=json_data["status"],
@@ -1345,7 +1593,7 @@ class PikComfortPayment(BaseIdentifiableModel):
         return PaymentStatus(self.status_id)
 
     def update_from_json(self, json_data: Mapping[str, Any]) -> None:
-        assert self.uid == json_data["_uid"], "UID does not match"
+        assert self.id == json_data["_uid"], "UID does not match"
         assert self.type == json_data["_type"], "type does not match"
 
         timestamp = datetime.fromisoformat(json_data["payment_date"])
@@ -1362,7 +1610,7 @@ class PikComfortPayment(BaseIdentifiableModel):
 
 
 @attr.s(slots=True)
-class PaymentPointDetails(BaseModel):
+class PaymentPointDetails(_BaseModel):
     icon_name: str = attr.ib()
     normalized_name: str = attr.ib()
     color: str = attr.ib()
@@ -1384,7 +1632,8 @@ class PaymentPointDetails(BaseModel):
 
 @attr.s(slots=True)
 class Insurance:
-    _uid: str = attr.ib()
+    # @TODO
+    _id: str = attr.ib()
     _type: str = attr.ib()
     is_active: bool = attr.ib()
     in_progress: bool = attr.ib()
@@ -1394,7 +1643,7 @@ class Insurance:
 
 @attr.s(slots=True)
 class HotCategory:
-    _uid: str = attr.ib()
+    _id: str = attr.ib()
     _type: str = attr.ib()
     title: str = attr.ib()
     icon_name: str = attr.ib()
@@ -1403,7 +1652,7 @@ class HotCategory:
 
 @attr.s(slots=True)
 class AccountNotification:
-    _uid: str = attr.ib()
+    _id: str = attr.ib()
     _type: str = attr.ib()
     created: str = attr.ib()
     title: str = attr.ib()
@@ -1423,7 +1672,7 @@ class AccountNotification:
 
 @attr.s(slots=True)
 class Action:
-    _uid: str = attr.ib()
+    _id: str = attr.ib()
     _type: str = attr.ib()
     device_type: int = attr.ib()
     action_type: int = attr.ib()
@@ -1439,7 +1688,7 @@ class Datum:
 
 
 @attr.s(slots=True)
-class PikComfortMeterReading(BaseIdentifiableModel):
+class PikComfortMeterReading(_BaseIdentifiableModel):
     value: float = attr.ib()
     tariff_type: int = attr.ib()
     date: date = attr.ib()
@@ -1454,7 +1703,7 @@ class PikComfortMeterReading(BaseIdentifiableModel):
 
         return cls(
             api=api_object,
-            uid=json_data["_uid"],
+            id=json_data["_uid"],
             type=json_data["_type"],
             value=json_data["value"],
             tariff_type=json_data["tariff_type"],
@@ -1463,7 +1712,7 @@ class PikComfortMeterReading(BaseIdentifiableModel):
         )
 
     def update_from_json(self, json_data: Mapping[str, Any]) -> None:
-        assert self.uid == json_data["_uid"], "UID does not match"
+        assert self.id == json_data["_uid"], "UID does not match"
         assert self.type == json_data["_type"], "type does not match"
 
         date_ = datetime.fromisoformat(json_data["date"]).date()
@@ -1476,7 +1725,7 @@ class PikComfortMeterReading(BaseIdentifiableModel):
 
 
 @attr.s(slots=True)
-class PikComfortMeterReadingMeterInfo(BaseIdentifiableModel):
+class PikComfortMeterReadingMeterInfo(_BaseIdentifiableModel):
     import_id: str = attr.ib()
     resource_type_id: int = attr.ib()
     is_auto: bool = attr.ib()
@@ -1487,7 +1736,7 @@ class PikComfortMeterReadingMeterInfo(BaseIdentifiableModel):
     def create_from_json(cls, json_data: Mapping[str, Any], api_object: PikComfortAPI):
         return cls(
             api=api_object,
-            uid=json_data["_uid"],
+            id=json_data["_uid"],
             type=json_data["_type"],
             import_id=json_data["import_id"],
             resource_type_id=json_data["resource_type"],
@@ -1497,7 +1746,7 @@ class PikComfortMeterReadingMeterInfo(BaseIdentifiableModel):
         )
 
     def update_from_json(self, json_data: Mapping[str, Any]) -> None:
-        assert self.uid == json_data["_uid"], "UID does not match"
+        assert self.id == json_data["_uid"], "UID does not match"
         assert self.type == json_data["_type"], "type does not match"
 
         self.import_id = json_data["import_id"]
@@ -1508,15 +1757,15 @@ class PikComfortMeterReadingMeterInfo(BaseIdentifiableModel):
 
     @property
     def meter(self) -> Optional[PikComfortMeter]:
-        user_data = self.api.user_data
-        if user_data is None:
+        info = self.api.info
+        if info is None:
             return None
 
-        meter_uid, meter_type = self.uid, self.type
+        meter_id, meter_type = self.id, self.type
 
-        for account in user_data.accounts:
+        for account in info.accounts:
             for meter in account.meters:
-                if meter.uid == meter_uid and meter.type == meter_type:
+                if meter.id == meter_id and meter.type == meter_type:
                     return meter
 
         return None
@@ -1524,3 +1773,126 @@ class PikComfortMeterReadingMeterInfo(BaseIdentifiableModel):
     @property
     def resource_type(self) -> MeterResourceType:
         return MeterResourceType(self.resource_type_id)
+
+
+@attr.s(slots=True)
+class TicketClassifier(_BaseIdentifiableModel):
+    name: str = attr.ib()
+    level: int = attr.ib()
+    created_at: datetime = attr.ib()
+    updated_at: datetime = attr.ib()
+    parent_id: Optional[str] = attr.ib(default=None)
+    hint: Optional[str] = attr.ib(default=None)
+
+    @classmethod
+    def create_from_json(cls, json_data: Mapping[str, Any], api_object: PikComfortAPI):
+        created_at = datetime.fromisoformat(json_data["created"])
+        updated_at = datetime.fromisoformat(json_data["updated"])
+        id_ = json_data["_uid"]
+        parent_id = json_data.get("parent")
+        if parent_id == id_:
+            parent_id = None
+
+        return cls(
+            api=api_object,
+            id=id_,
+            type=json_data["_type"],
+            name=json_data["name"],
+            level=json_data["level"],
+            created_at=created_at,
+            updated_at=updated_at,
+            parent_id=parent_id,
+            hint=json_data.get("hint") or None,
+        )
+
+    def update_from_json(self, json_data: Mapping[str, Any]) -> None:
+        id_ = json_data["_uid"]
+        assert self.id == id_, "UID does not match"
+        assert self.type == json_data["_type"], "type does not match"
+
+        created_at = datetime.fromisoformat(json_data["created"])
+        updated_at = datetime.fromisoformat(json_data["updated"])
+
+        parent_id = json_data.get("parent")
+        if parent_id == id_:
+            parent_id = None
+
+        self.name = json_data["name"]
+        self.level = json_data["level"]
+        self.created_at = created_at
+        self.updated_at = updated_at
+        self.parent_id = parent_id
+        self.hint = json_data.get("hint") or None
+
+    @property
+    def parent(self) -> Optional["TicketClassifier"]:
+        parent_id = self.parent_id
+        if not parent_id:
+            return None
+
+        classifiers = self.api.classifiers
+        if classifiers is None:
+            raise PikComfortException("Classifiers must be updated")
+
+        for classifier in classifiers:
+            if classifier.id == parent_id:
+                return classifier
+
+        return None
+
+    @property
+    def has_children(self) -> bool:
+        classifiers = self.api.classifiers
+        if classifiers is None:
+            raise PikComfortException("Classifiers must be updated")
+
+        for classifier in classifiers:
+            if classifier.parent_id == self.id:
+                return True
+
+        return False
+
+    @property
+    def children(self) -> Tuple["TicketClassifier", ...]:
+        classifiers = self.api.classifiers
+        if classifiers is None:
+            raise PikComfortException("Classifiers must be updated")
+
+        return tuple(
+            classifier for classifier in classifiers if classifier.parent_id == self.id
+        )
+
+    @property
+    def path(self) -> Tuple["TicketClassifier", ...]:
+        path = []
+        path_item = self
+        while path_item is not None:
+            if path_item in path:
+                _LOGGER.error(
+                    f"Detected loop while building classifier path: "
+                    f"for={self.id}, "
+                    f"current_path={tuple(map(lambda x: x.id, reversed(path)))}, "
+                    f"path_item={path_item}"
+                )
+                raise PikComfortException("Path loop detected")
+
+            path.append(path_item)
+            path_item = path_item.parent
+
+        return tuple(reversed(path))
+
+    async def async_create_ticket(
+        self,
+        description: str,
+        account_id: Optional[str] = None,
+        *,
+        check_classifier: bool = True,
+        check_account: bool = True,
+    ) -> PikComfortTicket:
+        return await self.api.async_create_ticket(
+            self.id,
+            description,
+            account_id,
+            check_classifier=check_classifier,
+            check_account=check_account,
+        )

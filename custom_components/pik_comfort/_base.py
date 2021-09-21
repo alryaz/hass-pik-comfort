@@ -32,7 +32,7 @@ _LOGGER = logging.getLogger(__name__)
 
 class BasePikComfortEntity(Entity, ABC):
     def __init__(
-        self, config_entry_id: str, account_type: str, account_uid: str
+        self, config_entry_id: str, account_type: str, account_id: str
     ) -> None:
         self._config_entry_id = config_entry_id
         self._collective_update_future: Optional[asyncio.Future] = None
@@ -40,18 +40,18 @@ class BasePikComfortEntity(Entity, ABC):
         self._available: bool = True
 
         self.account_type: str = account_type
-        self.account_uid: str = account_uid
+        self.account_id: str = account_id
 
     @property
     def account_object(self) -> Optional[PikComfortAccount]:
-        user_data = self.api_object.user_data
+        info = self.api_object.info
 
-        if user_data is None:
+        if info is None:
             return None
 
-        key = (self.account_uid, self.account_type)
-        for account in user_data.accounts:
-            if (account.uid, account.type) == key:
+        key = (self.account_id, self.account_type)
+        for account in info.accounts:
+            if (account.id, account.type) == key:
                 return account
 
         return None
@@ -60,7 +60,7 @@ class BasePikComfortEntity(Entity, ABC):
     def device_info(self) -> Dict[str, Any]:
         device_info = {
             "manufacturer": "PIK Comfort",
-            "identifiers": {(DOMAIN, self.account_uid)},
+            "identifiers": {(DOMAIN, self.account_id)},
             "model": "Account",
         }
 
@@ -175,7 +175,7 @@ async def async_setup_entry_for_platforms(
         await asyncio.sleep(3)
 
         try:
-            await api_object.async_update_data()
+            await api_object.async_update_info()
 
         except PikComfortException as update_error:
             _LOGGER.error(f"Could not update data: {update_error}")
