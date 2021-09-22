@@ -187,7 +187,7 @@ class PikComfortMeterSensor(BasePikComfortEntity, BinarySensorEntity):
     @property
     def is_on(self) -> bool:
         meter_object = self.meter_object
-        return not (meter_object.is_auto or meter_object.has_user_readings)
+        return meter_object.is_auto or meter_object.has_user_readings
 
     @property
     def device_class(self) -> str:
