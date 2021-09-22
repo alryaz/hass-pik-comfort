@@ -1341,8 +1341,8 @@ class PikComfortMeter(_BaseIdentifiableModel):
     unit_name: str = attr.ib()
     recalibration_status: str = attr.ib()
     last_period: str = attr.ib()
-    user_meter_name: str = attr.ib()
     tariffs: List["Tariff"] = attr.ib()
+    user_meter_name: Optional[str] = attr.ib(default=None)
     date_next_recalibration: Optional[date] = attr.ib(default=None)
 
     @property
@@ -1373,7 +1373,7 @@ class PikComfortMeter(_BaseIdentifiableModel):
             unit_name=json_data["unit_name"],
             recalibration_status=json_data["recalibration_status"],
             last_period=json_data["last_period"],
-            user_meter_name=json_data["user_meter_name"],
+            user_meter_name=json_data.get("user_meter_name"),
             tariffs=tariffs,
             date_next_recalibration=date_next_recalibration,
         )
@@ -1400,7 +1400,7 @@ class PikComfortMeter(_BaseIdentifiableModel):
         self.unit_name = json_data["unit_name"]
         self.recalibration_status = json_data["recalibration_status"]
         self.last_period = json_data["last_period"]
-        self.user_meter_name = json_data["user_meter_name"]
+        self.user_meter_name = json_data.get("user_meter_name")
         self.date_next_recalibration = date_next_recalibration
 
     async def async_submit_readings(
@@ -1863,7 +1863,11 @@ class TicketClassifier(_BaseIdentifiableModel):
         )
 
     @property
-    def path(self) -> Tuple["TicketClassifier", ...]:
+    def path_to(self) -> Tuple["TicketClassifier", ...]:
+        return tuple(reversed(self.path_from))
+
+    @property
+    def path_from(self) -> Tuple["TicketClassifier", ...]:
         path = []
         path_item = self
         while path_item is not None:
@@ -1879,7 +1883,11 @@ class TicketClassifier(_BaseIdentifiableModel):
             path.append(path_item)
             path_item = path_item.parent
 
-        return tuple(reversed(path))
+        return tuple(path)
+
+    @property
+    def parents(self) -> Tuple["TicketClassifier", ...]:
+        return self.path_from[1:]
 
     async def async_create_ticket(
         self,

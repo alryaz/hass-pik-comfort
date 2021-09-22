@@ -165,7 +165,11 @@ class PikComfortMeterSensor(BasePikComfortEntity, BinarySensorEntity):
         else:
             type_suffix = meter_object.resource_type.name.replace("_", " ").title()
 
-        return f"{meter_object.user_meter_name} ({type_suffix})"
+        meter_name = meter_object.user_meter_name
+        if not meter_name:
+            meter_name = f"№ {meter_object.factory_number}"
+
+        return f"{meter_name} ({type_suffix})"
 
     @property
     def icon(self) -> str:

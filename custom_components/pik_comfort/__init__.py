@@ -292,7 +292,7 @@ async def async_service_search_ticket_classifiers(
                 f"- `{classifier.id}`\n  _"
                 + "_ > _".join(
                     escape_markdown(path_classifier.name)
-                    for path_classifier in classifier.path
+                    for path_classifier in classifier.path_to
                 )
                 + "_"
             )
