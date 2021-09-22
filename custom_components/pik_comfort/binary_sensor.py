@@ -196,37 +196,43 @@ class PikComfortMeterSensor(BasePikComfortEntity, BinarySensorEntity):
     @property
     def device_state_attributes(self) -> Mapping[str, Any]:
         meter_object = self.meter_object
-        return {
+        device_state_attributes = {
             ATTR_DEVICE_CLASS: "pik_comfort_meter",
             "has_user_readings": meter_object.has_user_readings,
             "factory_number": meter_object.factory_number,
             "resource_type_id": meter_object.resource_type_id,
             "resource_type": meter_object.resource_type.name.lower(),
-            "tariffs": [
-                {
-                    "id": tariff.type,
-                    "value": tariff.value,
-                    "monthly_average": tariff.average_in_month,
-                    "submitted_value": tariff.user_value,
-                    "submitted_at": (
-                        tariff.user_value_updated.isoformat()
-                        if tariff.user_value_updated
-                        else None
-                    ),
-                }
-                for tariff in sorted(meter_object.tariffs, key=lambda x: x.type)
-            ],
-            "is_auto": meter_object.is_auto,
-            "is_individual": meter_object.is_individual,
-            "unit_name": meter_object.unit_name,
-            "last_period": meter_object.last_period,
-            "checkup_status": meter_object.recalibration_status,
-            "checkup_date": (
-                meter_object.date_next_recalibration.isoformat()
-                if meter_object.date_next_recalibration
-                else None
-            ),
         }
+
+        for tariff in sorted(meter_object.tariffs, key=lambda x: x.type):
+            for key, value in {
+                "value": tariff.value,
+                "monthly_average": tariff.average_in_month,
+                "submitted_value": tariff.user_value,
+                "submitted_at": (
+                    tariff.user_value_updated.isoformat()
+                    if tariff.user_value_updated
+                    else None
+                ),
+            }.items():
+                device_state_attributes[f"tariff_{tariff.type}_{key}"] = value
+
+        device_state_attributes.update(
+            {
+                "is_auto": meter_object.is_auto,
+                "is_individual": meter_object.is_individual,
+                "unit_name": meter_object.unit_name,
+                "last_period": meter_object.last_period,
+                "checkup_status": meter_object.recalibration_status,
+                "checkup_date": (
+                    meter_object.date_next_recalibration.isoformat()
+                    if meter_object.date_next_recalibration
+                    else None
+                ),
+            }
+        )
+
+        return device_state_attributes
 
     @staticmethod
     def get_submit_call_args(
