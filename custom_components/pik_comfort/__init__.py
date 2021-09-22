@@ -21,7 +21,7 @@ from typing import Dict, Final, List, Mapping, Optional
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.components import persistent_notification
-from homeassistant.const import CONF_TOKEN, CONF_USERNAME
+from homeassistant.const import CONF_SCAN_INTERVAL, CONF_TOKEN, CONF_USERNAME
 from homeassistant.core import ServiceCall
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import config_validation as cv
@@ -134,6 +134,9 @@ async def async_migrate_entry(
 
     if config_entry.version < 3:
         data[CONF_DEVICE_NAME] = get_random_device_name()
+
+    if config_entry.version < 4:
+        data[CONF_SCAN_INTERVAL] = DEFAULT_SCAN_INTERVAL
 
     config_entry.version = PikComfortConfigFlow.VERSION
     hass.config_entries.async_update_entry(config_entry, data=data)

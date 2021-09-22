@@ -105,6 +105,7 @@ DEFAULT_NAME_FORMAT_RU_SERVICE_CHARGES: Final = (
 
 DEFAULT_MAX_INDICATIONS: Final = 3
 DEFAULT_SCAN_INTERVAL: Final = 60 * 60 * 24  # 24 hours
+MIN_SCAN_INTERVAL: Final = 30  # 30 seconds
 
 SUPPORTED_PLATFORMS: Final = ("sensor", "binary_sensor")
 

@@ -8,7 +8,7 @@ from typing import Any, ClassVar, Dict, Final, Optional, Tuple
 
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry, ConfigFlow, OptionsFlow
-from homeassistant.const import CONF_BASE, CONF_TOKEN
+from homeassistant.const import CONF_BASE, CONF_SCAN_INTERVAL, CONF_TOKEN
 from homeassistant.data_entry_flow import FlowHandler
 from homeassistant.helpers import config_validation as cv
 from homeassistant.util.dt import as_local
@@ -24,7 +24,9 @@ from custom_components.pik_comfort.api import (
 from custom_components.pik_comfort.const import (
     CONF_DEVICE_NAME,
     CONF_PHONE_NUMBER,
+    DEFAULT_SCAN_INTERVAL,
     DOMAIN,
+    MIN_SCAN_INTERVAL,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -164,13 +166,15 @@ class _WithOTPInput(FlowHandler, ABC):
             )
             await api_object.async_update_info()
 
+        _LOGGER.debug(log_prefix + "Авторизация успешна, сохранение данных")
+
         return self._create_entry()
 
 
 class PikComfortConfigFlow(ConfigFlow, _WithOTPInput, domain=DOMAIN):
     """Configuration flow for the `pik_comfort` integration"""
 
-    VERSION: ClassVar[int] = 3
+    VERSION: ClassVar[int] = 4
 
     def __init__(self) -> None:
         super().__init__()
@@ -188,6 +192,7 @@ class PikComfortConfigFlow(ConfigFlow, _WithOTPInput, domain=DOMAIN):
                 CONF_PHONE_NUMBER: phone_number,
                 CONF_TOKEN: auth_token,
                 CONF_DEVICE_NAME: self._device_name,
+                CONF_SCAN_INTERVAL: DEFAULT_SCAN_INTERVAL,
             },
         )
 
@@ -262,6 +267,7 @@ class PikComfortOptionsFlow(OptionsFlow, _WithOTPInput):
         self._device_name: str = data[CONF_DEVICE_NAME]
         self._phone_number: str = data[CONF_PHONE_NUMBER]
         self._auth_token: str = data[CONF_TOKEN]
+        self._scan_interval: float = data[CONF_SCAN_INTERVAL]
 
     def _create_entry(self) -> Dict[str, Any]:
         return self.async_create_entry(
@@ -269,6 +275,7 @@ class PikComfortOptionsFlow(OptionsFlow, _WithOTPInput):
             data={
                 CONF_DEVICE_NAME: self._device_name,
                 CONF_TOKEN: self._auth_token,
+                CONF_SCAN_INTERVAL: self._scan_interval,
             },
         )
 
@@ -276,27 +283,40 @@ class PikComfortOptionsFlow(OptionsFlow, _WithOTPInput):
         self, user_input: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         errors = {}
-        error_code = None
-        error_message = None
+        description_placeholders = {}
 
         if user_input:
             auth_token = user_input[CONF_TOKEN]
 
+            self._scan_interval = user_input[CONF_SCAN_INTERVAL].total_seconds()
             self._device_name = user_input[CONF_DEVICE_NAME]
             self._auth_token = (
                 None if user_input.get(CONF_REQUEST_NEW_TOKEN) else auth_token
             )
 
-            try:
-                return await self._async_test_authentication()
-            except BaseException as error:
-                errors[CONF_BASE], error_message, error_code = _handle_exception(
-                    self._phone_number, error
-                )
+            if self._scan_interval < MIN_SCAN_INTERVAL:
+                errors[CONF_SCAN_INTERVAL] = "scan_interval_too_low"
+                description_placeholders["min_scan_interval"] = MIN_SCAN_INTERVAL
+
+            else:
+
+                try:
+                    return await self._async_test_authentication()
+                except BaseException as error:
+                    (
+                        errors[CONF_BASE],
+                        description_placeholders["error_message"],
+                        description_placeholders["error_code"],
+                    ) = _handle_exception(self._phone_number, error)
+
+            self._auth_token = auth_token
         else:
             auth_token = self._auth_token
 
-        _LOGGER.debug(f"Errors: {errors} / {error_message} / {error_code}")
+        scan_interval = self._scan_interval
+        hours = scan_interval // 3600
+        minutes = (scan_interval % 3600) // 60
+        seconds = scan_interval % 60
 
         return self.async_show_form(
             step_id="init",
@@ -306,12 +326,17 @@ class PikComfortOptionsFlow(OptionsFlow, _WithOTPInput):
                     vol.Required(CONF_DEVICE_NAME, default=self._device_name): vol.All(
                         cv.string, vol.Length(min=3)
                     ),
+                    vol.Optional(
+                        CONF_SCAN_INTERVAL,
+                        default={
+                            "hours": hours,
+                            "minutes": minutes,
+                            "seconds": seconds,
+                        },
+                    ): cv.positive_time_period_dict,
                     vol.Optional(CONF_REQUEST_NEW_TOKEN, default=False): cv.boolean,
                 }
             ),
             errors=errors,
-            description_placeholders={
-                "error_code": error_code or "<?>",
-                "error_message": error_message or "<?>",
-            },
+            description_placeholders=description_placeholders,
         )

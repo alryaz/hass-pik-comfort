@@ -38,14 +38,16 @@
             "request_error": "Ошибка запроса: {error_message}",
             "unknown_error": "Неизвестная ошибка: {error_message}",
             "otp_token_invalid": "Provided OTP token is invalid! Please, check your input, and try again.",
-            "otp_token_expired": "Confirmation token expired. Please, request a new one."
+            "otp_token_expired": "Confirmation token expired. Please, request a new one.",
+            "scan_interval_too_low": "Минимальный интервал – {min_scan_interval} секунд"
         },
         "step": {
             "init": {
                 "data": {
                     "token": "Токен авторизации",
                     "device_name": "Имя устройства",
-                    "request_new_token": "Запросить новый токен авторизации"
+                    "request_new_token": "Запросить новый токен авторизации",
+                    "scan_interval": "Интервал обновления данных"
                 },
                 "description": "Current token will expire at: {will_expire_at}"
             },

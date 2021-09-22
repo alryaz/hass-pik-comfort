@@ -36,14 +36,16 @@
             "api_error": "API error: {error_message}",
             "server_error": "Server error ({error_code}): {error_message}",
             "request_error": "Request error: {error_message}",
-            "unknown_error": "Unknown error: {error_message}"
+            "unknown_error": "Unknown error: {error_message}",
+            "scan_interval_too_low": "Minimum interval – {min_scan_interval} seconds"
         },
         "step": {
             "init": {
                 "data": {
                     "token": "Authentication token",
                     "device_name": "Device name",
-                    "request_new_token": "Request new authentication token"
+                    "request_new_token": "Request new authentication token",
+                    "scan_interval": "Data update interval"
                 },
                 "description": ""
             },
