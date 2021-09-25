@@ -86,7 +86,7 @@ async def async_process_update(
             existing_entity = None
 
             for entity in ticket_entities:
-                if (entity.ticket_type, entity.ticket_uid) == ticket_key:
+                if (entity.ticket_type, entity.ticket_id) == ticket_key:
                     existing_entity = entity
                     old_ticket_entities.remove(existing_entity)
                     break
@@ -198,7 +198,7 @@ class PikComfortLastPaymentSensor(BasePikComfortEntity):
             "timestamp": last_payment.timestamp.isoformat(),
             "payment_type": last_payment.payment_type,
             "source_name": last_payment.source_name,
-            "uid": last_payment.id,
+            "id": last_payment.id,
             "type": last_payment.type,
             "account_id": account_object.id,
             "account_type": account_object.type,

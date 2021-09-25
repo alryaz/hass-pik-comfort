@@ -292,7 +292,7 @@ class PikComfortMeterSensor(BasePikComfortEntity, BinarySensorEntity):
 
         event_data = {
             ATTR_ENTITY_ID: self.entity_id,
-            "meter_uid": self.meter_id,
+            "meter_id": self.meter_id,
             "meter_type": self.meter_type,
             "meter_number": None if meter is None else meter.factory_number,
             "call_params": dict(call_data),

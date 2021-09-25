@@ -450,14 +450,14 @@ class _BaseIdentifiableModel(_BaseModel, ABC):
     ) -> None:
         cleanup: Set[Tuple[str, str]] = set()
         for item_data in json_data_list:
-            object_uid, object_type = item_data["_uid"], item_data["_type"]
-            cleanup.add((object_uid, object_type))
+            object_id, object_type = item_data["_uid"], item_data["_type"]
+            cleanup.add((object_id, object_type))
             current_object = None
 
             for existing_object in target_list:
                 if (
                     existing_object.type == object_type
-                    and existing_object.uid == object_uid
+                    and existing_object.id == object_id
                 ):
                     current_object = existing_object
                     break
@@ -469,10 +469,10 @@ class _BaseIdentifiableModel(_BaseModel, ABC):
                 current_object.update_from_json(item_data)
 
         for current_object in tuple(reversed(target_list)):
-            if (current_object.uid, current_object.type) not in cleanup:
+            if (current_object.id, current_object.type) not in cleanup:
                 target_list.remove(current_object)
             else:
-                cleanup.remove((current_object.uid, current_object.type))
+                cleanup.remove((current_object.id, current_object.type))
 
 
 @attr.s(slots=True)
@@ -1086,7 +1086,7 @@ class PikComfortAttachmentImage(_BaseModel):
             current_attachment = None
 
             for existing_attachment in target_list:
-                if existing_attachment.uid == attachment_id:
+                if existing_attachment.id == attachment_id:
                     current_attachment = existing_attachment
                     break
 
@@ -1097,10 +1097,10 @@ class PikComfortAttachmentImage(_BaseModel):
                 current_attachment.update_from_json(item_data)
 
         for current_attachment in tuple(reversed(target_list)):
-            if current_attachment.uid not in cleanup:
+            if current_attachment.id not in cleanup:
                 target_list.remove(current_attachment)
             else:
-                cleanup.remove(current_attachment.uid)
+                cleanup.remove(current_attachment.id)
 
 
 @attr.s(slots=True)
@@ -1412,7 +1412,7 @@ class PikComfortMeter(_BaseIdentifiableModel):
             raise PikComfortException("API is not authenticated")
 
         request = []
-        meter_uid = self.id
+        meter_id = self.id
 
         if isinstance(values, Mapping):
             iterator = values.items()
@@ -1435,8 +1435,8 @@ class PikComfortMeter(_BaseIdentifiableModel):
                 {
                     "value": value,
                     "tariff_type": existing_tariff.type,
-                    "meter": meter_uid,
-                    "meter_reading_uid": meter_uid + str(existing_tariff.type),
+                    "meter": meter_id,
+                    "meter_reading_uid": meter_id + str(existing_tariff.type),
                 }
             )
 
