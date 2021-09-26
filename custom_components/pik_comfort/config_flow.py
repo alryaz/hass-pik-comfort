@@ -72,7 +72,7 @@ def _handle_exception(
             log_message = f"Неизвестная ошибка: {error_message}"
             intl_error_code = "unknown_error"
 
-    _LOGGER.error(log_prefix + log_message)
+    _LOGGER.exception(log_prefix + log_message, exc_info=error)
     return intl_error_code, error_message, error_code
 
 
