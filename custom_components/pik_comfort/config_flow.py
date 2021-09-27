@@ -108,7 +108,7 @@ class _WithOTPInput(FlowHandler, ABC):
                             await self._async_request_otp_code(api_object)
                         else:
                             await api_object.async_authenticate_otp(
-                                user_input[CONF_TOKEN]
+                                user_input[CONF_OTP_CODE]
                             )
                             self._auth_token = api_object.token
                             return self._create_entry()
@@ -117,11 +117,11 @@ class _WithOTPInput(FlowHandler, ABC):
                         phone_number, error
                     )
                     if intl_error_string == "server_error" and error_code == "invalid":
-                        errors[CONF_TOKEN] = "otp_token_invalid"
+                        errors[CONF_OTP_CODE] = "otp_token_invalid"
                     else:
                         errors[CONF_BASE] = intl_error_string
             else:
-                errors[CONF_TOKEN] = "otp_token_expired"
+                errors[CONF_OTP_CODE] = "otp_token_expired"
 
         return self.async_show_form(
             step_id="otp_input",
