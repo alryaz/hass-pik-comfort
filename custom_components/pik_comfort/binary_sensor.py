@@ -60,7 +60,7 @@ SERVICE_PUSH_READINGS_SCHEMA = {
     vol.Optional(ATTR_INCREMENTAL, default=False): cv.boolean,
     vol.Optional(ATTR_NOTIFICATION, default=False): vol.Any(
         cv.boolean,
-        persistent_notification.SCHEMA_SERVICE_CREATE,
+        persistent_notification.SCHEMA_SERVICE_NOTIFICATION,
     ),
 }
 
