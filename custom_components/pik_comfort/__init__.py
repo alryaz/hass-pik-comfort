@@ -164,7 +164,7 @@ SERVICE_SEARCH_TICKET_CLASSIFIERS_SCHEMA: Final = vol.Schema(
         vol.Required(ATTR_QUERY): cv.string_with_no_html,
         vol.Optional(ATTR_NOTIFICATION, default=False): vol.Any(
             cv.boolean,
-            persistent_notification.SCHEMA_SERVICE_CREATE,
+            persistent_notification.SCHEMA_SERVICE_NOTIFICATION,
         ),
         vol.Optional(ATTR_MAX_RESULTS, default=DEFAULT_MAX_RESULTS): vol.All(
             vol.Coerce(int), vol.Range(min=1, min_included=True)
